@@ -1,9 +1,9 @@
 import {
   DIMS, COLORS, TRI, colorOf, rangeText, fmt, emptyDoc, cloneOrder, analyze, diffOrders, changeText,
-  fieldValues, sampleDoc, hasContent, serializeDoc, parseBackup,
+  fieldValues, sampleDoc, summarizeChanges, defaultOutput, hasContent, serializeDoc, parseBackup,
 } from './model.js';
 import { buildScene, buildCompareScene, sceneToSvg } from './diagram.js';
-import { renderPng, exportBlockers } from './export.js';
+import { renderPngs, exportBlockers } from './export.js';
 import { loadDoc, saveDoc } from './storage.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -79,6 +79,7 @@ function fillForm() {
   const c = state.doc.current;
   $('#f-orderNo').value = c.orderNo;
   $('#f-memo').value = c.memo;
+  $('#f-questions').value = c.questions || '';
   for (const d of DIMS) $(`#f-${d.key}`).value = c.dims[d.key];
   for (const name of ['outerColor', 'liningColor', 'lining', 'pocket']) {
     for (const r of $$(`input[name="${name}"]`)) r.checked = r.value === c[name];
@@ -94,6 +95,7 @@ function bindEvents() {
     if (t.dataset.dim) c.dims[t.dataset.dim] = t.value;
     else if (t.name === 'orderNo') c.orderNo = t.value;
     else if (t.name === 'memo') c.memo = t.value;
+    else if (t.name === 'questions') c.questions = t.value;
     else return;
     changed();
   });
@@ -224,6 +226,7 @@ function render() {
     input.setAttribute('aria-invalid', err ? 'true' : 'false');
     field.classList.toggle('has-error', !!err);
     field.classList.toggle('is-pending', ev.status === 'empty');
+    field.dataset.pending = '未入力';
     field.classList.toggle('is-highlight', state.highlight === d.key);
   }
   const bw = an.dims.bottomWidth;
@@ -242,6 +245,7 @@ function render() {
     const pend = (name === 'outerColor' && !colorOf(v)) || ((name === 'lining' || name === 'pocket') && v === 'undecided') ||
       (name === 'liningColor' && doc.current.lining === 'yes' && !colorOf(v));
     field.classList.toggle('is-pending', pend);
+    field.dataset.pending = '未定';
     for (const r of $$(`input[name="${name}"]`)) r.closest('.choice').classList.toggle('is-checked', r.checked);
   }
 
@@ -254,7 +258,7 @@ function render() {
     field.classList.toggle('is-changed', isChanged);
     if (isChanged) {
       const bf = baseFields.find((f) => f.key === key);
-      note.innerHTML = key === 'memo'
+      note.innerHTML = key === 'memo' || key === 'questions'
         ? '<span class="badge-change">変更</span>比較元から内容が変わっています'
         : `<span class="badge-change">変更</span>比較元（版${doc.baselineVersion}）：${esc(bf.text)}`;
     } else {
@@ -288,17 +292,19 @@ function renderDiagram(an, changes) {
     : `版${doc.version}。初回確認モードです。`;
   $('#diagram').innerHTML = sceneToSvg(buildScene(doc.current, { baseline: doc.baseline, highlight: state.highlight, narrow: isNarrow() }), 'バッグの模式図（正面図・側面図・内側）');
   let html = pendingListHtml(an);
-  html += `<div class="list-block pending"><h3><span aria-hidden="true">？</span>要確認の項目</h3>${an.pending.length
+  html += `<div class="list-block pending"><h3><span aria-hidden="true">？</span>未入力・未定の項目</h3>${an.pending.length
     ? `<ul>${an.pending.map((p) => `<li>${esc(p.text)}</li>`).join('')}</ul>` : '<p>なし</p>'}</div>`;
   if (doc.baseline) html += changesHtml(changes);
   $('#diagramLists').innerHTML = html;
 }
 
-function changesHtml(changes) {
+function changesHtml() {
   const doc = state.doc;
-  return `<div class="list-block changes"><h3><span class="sq" aria-hidden="true"></span>比較元（版${doc.baselineVersion}）からの変更点</h3>${changes.length
-    ? `<ul>${changes.map((c) => `<li><span class="badge-change">変更</span>${esc(changeText(c))}</li>`).join('')}</ul>`
-    : '<p>変更点はありません</p>'}</div>`;
+  // 画面では作家向けに、注文メモ・確認事項の変更も含めてまとめて表示する
+  const list = summarizeChanges(doc.baseline, doc.current, { memo: true, questions: true });
+  return `<div class="list-block changes"><h3><span class="sq" aria-hidden="true"></span>比較元（版${doc.baselineVersion}）からの変更点</h3>${list.length
+    ? `<ul>${list.map((c) => `<li><span class="badge-change">変更</span>${esc(c.text)}</li>`).join('')}</ul>`
+    : '<p>比較元からの変更はありません</p>'}</div>`;
 }
 
 function renderCompare(changes) {
@@ -422,7 +428,7 @@ async function onBaseline() {
     });
     return;
   }
-  const pend = an.pending.length ? `<p class="hint">要確認の項目が ${an.pending.length} 件あります（未定のまま固定されます）。</p>` : '';
+  const pend = an.pending.length ? `<p class="hint">未入力・未定の項目が ${an.pending.length} 件あります（そのまま固定されます）。</p>` : '';
   const html = doc.baseline
     ? `<p>比較元（版${doc.baselineVersion}）を、現在の内容（版${doc.version}）で置き換えます。以降の編集は版${doc.version + 1}として比べます。</p>${pend}<p class="hint">お客様の承認を記録するものではありません。</p>`
     : `<p>現在の内容（版${doc.version}）を比較元として固定します。以降の編集は版${doc.version + 1}として、変更点を比べられます。</p>${pend}<p class="hint">お客様の承認を記録するものではありません。</p>`;
@@ -436,11 +442,10 @@ async function onBaseline() {
   toast(`版${doc.baselineVersion}を比較元にしました。以降の編集は版${doc.version}です`);
 }
 
-let previewUrl = null;
+let previewUrls = [];
 async function onExport() {
   const doc = state.doc;
-  let mode = doc.baseline ? 'compare' : 'single';
-  const blockers = exportBlockers(doc, mode);
+  const blockers = exportBlockers(doc);
   if (blockers.length) {
     await openModal({
       title: '確認画像を作成できません',
@@ -448,64 +453,112 @@ async function onExport() {
     });
     return;
   }
-  const fileName = () => {
+  if (!doc.output) doc.output = defaultOutput();
+  const settings = doc.output; // 出力設定は保存する（比較元・注文内容には影響しない）
+  const fileName = (img) => {
     const base = (doc.current.orderNo.trim() || 'order').replace(/[^\w.-]+/g, '_').slice(0, 40);
-    return `katachi_${base}_v${doc.version}${mode === 'compare' ? '_compare' : ''}.png`;
+    const kind = settings.audience === 'maker' ? 'detail' : 'customer';
+    return `katachi_${base}_v${doc.version}_${kind}${img.total > 1 ? `_${img.index}of${img.total}` : ''}.png`;
   };
-  let current = null;
+  let images = [];
+  let seq = 0;
+  const syncControls = (modal) => {
+    const maker = settings.audience === 'maker';
+    const changed = new Set(doc.baseline ? diffOrders(doc.baseline, doc.current).map((c) => c.key) : []);
+    const auto = {
+      side: maker ? '作家用では常に含めます' : changed.has('gusset') ? 'マチの変更があるため含めます' : '',
+      interior: maker ? '作家用では常に含めます' : ['lining', 'liningColor', 'pocket'].some((k) => changed.has(k)) ? '裏地・ポケットの変更があるため含めます' : '',
+      memo: maker ? '作家用では常に含めます' : '',
+    };
+    for (const k of ['side', 'interior', 'memo']) {
+      const cb = $(`#opt-${k}`, modal);
+      cb.checked = !!auto[k] || settings[k];
+      cb.disabled = !!auto[k];
+      $(`#opt-${k}-note`, modal).textContent = auto[k];
+      cb.closest('.check').classList.toggle('is-checked', cb.checked);
+    }
+    for (const r of $$('input[name="paud"]', modal)) {
+      r.checked = r.value === settings.audience;
+      r.closest('.choice').classList.toggle('is-checked', r.checked);
+    }
+  };
   const generate = async (modal) => {
+    const my = ++seq;
     const box = $('.preview-box', modal);
     box.innerHTML = '<p class="hint">画像を作成しています…</p>';
+    let result;
     try {
-      current = await renderPng(doc, mode);
+      result = await renderPngs(doc, settings);
     } catch (e) {
+      if (my !== seq) return;
       box.innerHTML = `<p class="error-text">！ 画像を作成できませんでした（${esc(e.message || '不明なエラー')}）</p>`;
-      current = null;
+      images = [];
       return;
     }
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    previewUrl = URL.createObjectURL(current.blob);
-    box.innerHTML = `<img src="${previewUrl}" alt="確認画像のプレビュー" class="preview-img" id="previewImg">`;
-    $('#shareBtn', modal).hidden = FRAMED || !canShareFile(current.blob, fileName());
-    $('#downloadBtn', modal).hidden = FRAMED;
+    if (my !== seq) return; // 設定を続けて変えたときは最後の結果だけを表示
+    images = result.images;
+    previewUrls.forEach((u) => URL.revokeObjectURL(u));
+    previewUrls = images.map((img) => URL.createObjectURL(img.blob));
+    const multi = images.length > 1;
+    $('#pageInfo', modal).textContent = multi
+      ? `長いため ${images.length} 枚に分けました。1枚ずつ保存してください。`
+      : '1枚の画像です。';
+    box.innerHTML = images.map((img, i) => `
+      <figure class="preview-page" data-page="${i}">
+        ${multi ? `<figcaption>${img.index}/${img.total}　${esc(img.name)}</figcaption>` : ''}
+        <div class="preview-actions">
+          <button type="button" class="btn btn-primary" data-share="${i}" ${FRAMED || !canShareFile(img.blob, fileName(img)) ? 'hidden' : ''}>共有・保存…</button>
+          <button type="button" class="btn" data-dl="${i}" ${FRAMED ? 'hidden' : ''}>${multi ? `${img.index}枚目をダウンロード` : '画像をダウンロード'}</button>
+        </div>
+        <img src="${previewUrls[i]}" alt="確認画像のプレビュー ${img.index}/${img.total}" class="preview-img">
+      </figure>`).join('');
   };
   const pendingN = analyze(doc.current).pending.length;
   await openModal({
     title: '保存前プレビュー',
     wide: true,
     html: `
-      ${doc.baseline ? `<div class="seg seg-small" role="radiogroup" aria-label="画像の種類">
-        <label class="choice seg-item is-checked"><input type="radio" name="pmode" value="compare" checked><span class="choice-label">変更前後の比較</span></label>
-        <label class="choice seg-item"><input type="radio" name="pmode" value="single"><span class="choice-label">現在の内容のみ</span></label>
-      </div>` : ''}
-      ${pendingN ? `<p class="pending-note"><span aria-hidden="true">？</span>要確認の項目が ${pendingN} 件あります。画像にも「要確認」と記載されます。</p>` : ''}
-      <div class="preview-actions">
-        <button type="button" class="btn btn-primary" id="shareBtn" hidden>共有・保存…</button>
-        <button type="button" class="btn" id="downloadBtn">画像をダウンロード</button>
+      <div class="export-options">
+        <div class="seg seg-small" role="radiogroup" aria-label="用途">
+          <label class="choice seg-item"><input type="radio" name="paud" value="customer"><span class="choice-label">お客様用（かんたん）</span></label>
+          <label class="choice seg-item"><input type="radio" name="paud" value="maker"><span class="choice-label">作家用（詳細）</span></label>
+        </div>
+        <div class="checks">
+          <label class="check"><input type="checkbox" id="opt-side"><span>側面図を含める</span><small id="opt-side-note"></small></label>
+          <label class="check"><input type="checkbox" id="opt-interior"><span>内側図を含める</span><small id="opt-interior-note"></small></label>
+          <label class="check"><input type="checkbox" id="opt-memo"><span>注文メモを含める</span><small id="opt-memo-note"></small></label>
+        </div>
       </div>
-      <p class="hint">${FRAMED ? '下の画像を長押しして「"写真"に保存」を選ぶと保存できます。' : '保存できない場合は、下の画像を長押しして「"写真"に保存」または「画像を保存」を選んでください。'}</p>
+      ${pendingN ? `<p class="pending-note"><span aria-hidden="true">？</span>未入力・未定の項目が ${pendingN} 件あります。画像にもそのまま記載されます。</p>` : ''}
+      <p class="hint" id="pageInfo"></p>
+      <p class="hint">${FRAMED ? '画像を長押しして「"写真"に保存」を選ぶと保存できます。' : '保存できない場合は、画像を長押しして「"写真"に保存」または「画像を保存」を選んでください。'}</p>
       <div class="preview-box"></div>`,
     actions: [{ label: '閉じる', value: null }],
     onMount: (modal) => {
+      syncControls(modal);
       generate(modal);
-      for (const r of $$('input[name="pmode"]', modal)) {
-        r.addEventListener('change', () => {
-          mode = r.value;
-          for (const x of $$('input[name="pmode"]', modal)) x.closest('.choice').classList.toggle('is-checked', x.checked);
-          generate(modal);
-        });
+      const changedSetting = () => { syncControls(modal); generate(modal); scheduleSave(); };
+      for (const r of $$('input[name="paud"]', modal)) {
+        r.addEventListener('change', () => { settings.audience = r.value; changedSetting(); });
       }
-      $('#downloadBtn', modal).addEventListener('click', () => {
-        if (!current) return;
-        downloadBlob(current.blob, fileName());
-      });
-      $('#shareBtn', modal).addEventListener('click', async () => {
-        if (!current) return;
-        try {
-          await navigator.share({ files: [new File([current.blob], fileName(), { type: 'image/png' })], title: '仕様の確認' });
-        } catch (e) {
-          if (e && e.name === 'AbortError') return;
-          toast('共有できませんでした。ダウンロードか、画像の長押しで保存してください');
+      for (const k of ['side', 'interior', 'memo']) {
+        $(`#opt-${k}`, modal).addEventListener('change', (e) => { settings[k] = e.target.checked; changedSetting(); });
+      }
+      $('.preview-box', modal).addEventListener('click', async (e) => {
+        const dl = e.target.closest('[data-dl]');
+        const sh = e.target.closest('[data-share]');
+        if (dl) {
+          const img = images[+dl.dataset.dl];
+          if (img) downloadBlob(img.blob, fileName(img));
+        } else if (sh) {
+          const img = images[+sh.dataset.share];
+          if (!img) return;
+          try {
+            await navigator.share({ files: [new File([img.blob], fileName(img), { type: 'image/png' })], title: '仕様の確認' });
+          } catch (err) {
+            if (err && err.name === 'AbortError') return;
+            toast('共有できませんでした。ダウンロードか、画像の長押しで保存してください');
+          }
         }
       });
     },

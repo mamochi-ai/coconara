@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "app": "katachi-awase",
+  "exported_at": "2026-11-12T01:00:00.000Z",
+  "data": {
+    "current": {
+      "orderNo": "SAMPLE-001",
+      "memo": "架空のサンプルです。普段使い用。A4のクリアファイルが入る大きさを希望。",
+      "dims": {
+        "height": "30",
+        "mouthWidth": "45",
+        "gusset": "10",
+        "handleHeight": "15"
+      },
+      "outerColor": "kinari",
+      "lining": "yes",
+      "liningColor": "navy",
+      "pocket": "yes"
+    },
+    "baseline": {
+      "orderNo": "SAMPLE-001",
+      "memo": "架空のサンプルです。普段使い用。A4のクリアファイルが入る大きさを希望。",
+      "dims": {
+        "height": "30",
+        "mouthWidth": "40",
+        "gusset": "10",
+        "handleHeight": "15"
+      },
+      "outerColor": "kinari",
+      "lining": "none",
+      "liningColor": "",
+      "pocket": "none"
+    },
+    "version": 2,
+    "baseline_version": 1,
+    "is_sample": true
+  }
+}

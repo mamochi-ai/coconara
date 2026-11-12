@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parseDim, fmt, evaluateDims, analyze, diffOrders, changeText, sampleDoc, emptyOrder, emptyDoc,
+  parseDim, fmt, evaluateDims, analyze, diffOrders, sampleDoc, emptyOrder, emptyDoc, summarizeChanges, fieldValues,
   cloneOrder, serializeDoc, parseBackup, hasContent,
 } from '../../docs/js/model.js';
 import { buildScene, buildCompareScene, sceneToSvg, geometry } from '../../docs/js/diagram.js';
@@ -94,12 +94,14 @@ test('サンプル：底幅と変更点', () => {
   const s = sampleDoc();
   assert.equal(evaluateDims(s.baseline.dims).bottomWidth.value, 300);
   assert.equal(evaluateDims(s.current.dims).bottomWidth.value, 350);
-  const texts = diffOrders(s.baseline, s.current).map(changeText);
+  const texts = summarizeChanges(s.baseline, s.current).map((c) => c.text);
   assert.deepEqual(texts, [
     '袋口幅：40 → 45cm',
-    '底幅：30 → 35cm（袋口幅の変更に伴う）',
+    '底幅：30 → 35cm（袋口幅変更に伴う）',
     '内ポケット：なし → あり',
   ]);
+  // 確認事項の変更はお客様用の一覧には出さない（作家向けの画面では出す）
+  assert.ok(summarizeChanges(s.baseline, s.current, { questions: true }).some((c) => c.text === 'お客様に確認したいこと：内容を変更'));
   assert.equal(s.baselineVersion, 1);
   assert.equal(s.version, 2);
   assert.equal(s.isSample, true);
@@ -117,17 +119,18 @@ test('元の値に戻すと変更が消える', () => {
   const s = sampleDoc();
   s.current.dims.mouthWidth = '40';
   s.current.pocket = 'none';
+  s.current.questions = '';
   assert.deepEqual(diffOrders(s.baseline, s.current), []);
 });
 
 test('未定→確定、あり→なし、空欄→値 も変更として扱う', () => {
   const a = order({ height: '' }, { lining: 'undecided', pocket: 'yes', outerColor: '' });
   const b = order({ height: '30' }, { lining: 'none', pocket: 'none', outerColor: 'navy' });
-  const t = diffOrders(a, b).map(changeText);
+  const t = summarizeChanges(a, b).map((c) => c.text);
   assert.ok(t.includes('本体高さ：未入力 → 30cm'));
   assert.ok(t.includes('裏地：未定 → なし'));
   assert.ok(t.includes('内ポケット：あり → なし'));
-  assert.ok(t.includes('表地の色：未定 → ネイビー'));
+  assert.ok(t.includes('表地：未定 → ネイビー'));
 });
 
 test('裏地の色は裏地ありのときだけ比較対象', () => {
@@ -135,14 +138,29 @@ test('裏地の色は裏地ありのときだけ比較対象', () => {
   const b = order({}, { lining: 'none', liningColor: 'olive' });
   assert.equal(diffOrders(a, b).length, 0);
   const c = order({}, { lining: 'yes', liningColor: 'olive' });
-  const t = diffOrders(a, c).map(changeText);
-  assert.deepEqual(t, ['裏地：なし → あり', '裏地の色：—（裏地なし／未定） → オリーブ']);
+  // 裏地の追加と色はまとめて1行
+  assert.deepEqual(summarizeChanges(a, c).map((x) => x.text), ['裏地：なし → あり〈オリーブ〉']);
+  // 裏地ありのまま色だけ変えた場合
+  const d = order({}, { lining: 'yes', liningColor: 'beige' });
+  const e = order({}, { lining: 'yes', liningColor: 'navy' });
+  assert.deepEqual(summarizeChanges(d, e).map((x) => x.text), ['裏地の色：ベージュ → ネイビー']);
+  // 色未選択のまま裏地を追加
+  assert.deepEqual(summarizeChanges(a, order({}, { lining: 'yes' })).map((x) => x.text), ['裏地：なし → あり〈色は未定〉']);
+});
+
+test('裏地なし・裏地未定・色未選択を区別して表示する（まとめた「なし／未定」は使わない）', () => {
+  const lc = (lining, liningColor = '') => fieldValues(order({}, { lining, liningColor })).find((f) => f.key === 'liningColor').text;
+  assert.equal(lc('none', 'navy'), '対象外');
+  assert.equal(lc('undecided', 'navy'), '未定');
+  assert.equal(lc('yes'), '未定');
+  assert.equal(lc('yes', 'navy'), 'ネイビー');
+  for (const l of ['none', 'undecided', 'yes']) assert.ok(!/なし／未定/.test(lc(l)));
 });
 
 test('マチだけ変えた場合の底幅の説明', () => {
   const a = order({ mouthWidth: '40', gusset: '10' });
   const b = order({ mouthWidth: '40', gusset: '12' });
-  assert.deepEqual(diffOrders(a, b).map(changeText), ['マチ：10 → 12cm', '底幅：30 → 28cm（マチの変更に伴う）']);
+  assert.deepEqual(summarizeChanges(a, b).map((c) => c.text), ['マチ：10 → 12cm', '底幅：30 → 28cm（マチ変更に伴う）']);
 });
 
 test('比較元はコピーなので、現在の内容を編集しても変わらない', () => {
@@ -158,7 +176,11 @@ test('JSON：比較元を含めて往復できる', () => {
   const text = JSON.stringify(serializeDoc(s));
   const back = parseBackup(text);
   assert.deepEqual(back, s);
-  assert.equal(JSON.parse(text).schema_version, 1);
+  assert.equal(JSON.parse(text).schema_version, 2);
+  // 出力設定と確認事項も往復する
+  s.output = { audience: 'maker', side: true, interior: false, memo: true };
+  s.current.questions = '確認事項';
+  assert.deepEqual(parseBackup(JSON.stringify(serializeDoc(s))), s);
 });
 
 test('JSON：壊れたもの・不正な値は拒否する', () => {
@@ -196,7 +218,10 @@ test('図：極端な寸法や未入力・不正値でも有限の座標で収�
     assert.ok(g.cm.B > 0, 'bottom width must be positive in drawing');
     const sc = buildScene(o);
     for (const it of sc.items) {
-      const nums = it.t === 'path' ? (it.d.match(/-?\d+(\.\d+)?/g) || []).map(Number) : [it.x, it.y];
+      // 絶対座標のコマンド（大文字）だけを範囲チェックする
+      const nums = it.t === 'path'
+        ? [...it.d.matchAll(/([MLHVQ])([^A-Za-z]*)/g)].flatMap((m) => (m[2].match(/-?\d+(\.\d+)?/g) || []).map(Number))
+        : [it.x, it.y];
       for (const v of nums) {
         assert.ok(Number.isFinite(v), `finite ${JSON.stringify(it)}`);
         assert.ok(v >= -2 && v <= Math.max(sc.width, sc.height) + 2, `in bounds ${v} ${JSON.stringify(it).slice(0, 120)}`);
@@ -206,12 +231,14 @@ test('図：極端な寸法や未入力・不正値でも有限の座標で収�
   }
 });
 
-test('図：未入力は「？」と要確認で示す', () => {
+test('図：未入力は「？」で示し、未定の色は塗らない', () => {
   const svg = sceneToSvg(buildScene(emptyOrder()));
-  assert.match(svg, /？cm（要確認）/);
+  assert.match(svg, /？cm（未入力）/);
   assert.match(svg, /stroke-dasharray/);
-  assert.match(svg, /表地：未定（要確認）/);
-  assert.match(svg, /裏地：未定（要確認）/);
+  assert.match(svg, /表地：未定/);
+  assert.match(svg, /裏地：未定/);
+  assert.match(svg, /clip-path/); // 未定はハッチングで示す
+  assert.ok(!/fill="#FFFFFF"/i.test(svg), '白い塗りを指定色として使わない');
 });
 
 test('図：比較では同じ縮尺を使い、変更箇所に（変更）を付ける', () => {
@@ -221,17 +248,18 @@ test('図：比較では同じ縮尺を使い、変更箇所に（変更）を�
   assert.match(svg, /袋口幅 45cm（変更）/);
   assert.match(svg, /袋口幅 40cm</);
   assert.match(svg, /内ポケット：あり（変更）/);
-  assert.deepEqual(sc.changes, ['mouthWidth', 'bottomWidth', 'pocket']);
+  assert.deepEqual(sc.changes, ['mouthWidth', 'bottomWidth', 'pocket', 'questions']);
 });
 
 test('図：裏地・ポケットの未定／なし／ありが反映される', () => {
   const t = (lining, pocket, liningColor = '') => sceneToSvg(buildScene(order({}, { lining, pocket, liningColor })));
   assert.match(t('none', 'none'), /裏地：なし（表地の裏側）/);
   assert.match(t('none', 'none'), /内ポケット：なし/);
-  assert.match(t('yes', 'yes', 'navy'), /裏地：あり（ネイビー）/);
-  assert.match(t('yes', 'yes', 'navy'), /片面中央に1個/);
-  assert.match(t('yes', 'undecided'), /裏地：あり（色は要確認）/);
-  assert.match(t('yes', 'undecided'), /内ポケット：未定（要確認）/);
+  assert.match(t('yes', 'yes', 'navy'), /裏地：あり〈ネイビー〉/);
+  assert.match(t('yes', 'yes', 'navy'), /片面中央に1個・色と大きさは未指定/);
+  assert.match(t('yes', 'undecided'), /裏地：あり〈色は未定〉/);
+  assert.match(t('yes', 'undecided'), /内ポケット：未定/);
+  assert.match(t('undecided', 'none'), /裏地：未定/);
 });
 
 test('図：狭い画面用の縦積みでも同じ縮尺・範囲内', () => {

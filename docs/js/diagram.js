@@ -1,6 +1,6 @@
 // バッグの模式図。描画命令（path / rect / text）の配列を作り、
 // SVG（画面）と Canvas（PNG書き出し）の両方で同じ内容を描く。
-import { evaluateDims, diffOrders, colorOf, colorLabel, fmt, POCKET_CONDITION } from './model.js';
+import { evaluateDims, diffOrders, colorOf, colorLabel, fmt } from './model.js';
 
 export const PALETTE = {
   paper: '#FFFDF8',
@@ -13,7 +13,8 @@ export const PALETTE = {
   hl: '#1F5FBF',
   hlBg: '#E4EDFB',
   handle: '#4A4743',
-  unknownFill: '#FFFFFF',
+  hatch: '#B9B2A5',
+  divider: '#E2DCCF',
 };
 
 export const FONT_FAMILY =
@@ -47,6 +48,7 @@ export function geometry(order) {
 
 // ---------- 描画命令 ----------
 const P = {
+  hatch: (clip, x, y, w, h, o = {}) => ({ t: 'hatch', clip, x, y, w, h, step: 7, stroke: PALETTE.hatch, width: 1, ...o }),
   path: (d, o = {}) => ({ t: 'path', d, ...o }),
   rect: (x, y, w, h, o = {}) => ({ t: 'rect', x, y, w, h, ...o }),
   text: (x, y, text, o = {}) => ({ t: 'text', x, y, text: String(text), size: 13, weight: 400, fill: PALETTE.text, anchor: 'start', ...o }),
@@ -65,7 +67,7 @@ function valueText(evd, opts = {}) {
   return '？cm';
 }
 function suffix(st, evd) {
-  if (evd.status === 'empty') return '（要確認）';
+  if (evd.status === 'empty') return '（未入力）';
   if (st.changed) return '（変更）';
   return '';
 }
@@ -122,14 +124,39 @@ function vDim(items, x, ya, yb, extA, extB, name, evd, st, side) {
   label(items, lx, (ya + yb) / 2, lines, side === 'left' ? 'end' : 'start', sty);
 }
 
+// ---------- 色 ----------
+// 素材色は変更の有無にかかわらず同じ色で描く。変更の強調は寸法線・ラベル・外側の囲みだけに使う。
+
+function hexLum(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return 1;
+  const v = parseInt(m[1], 16);
+  const ch = [(v >> 16) & 255, (v >> 8) & 255, v & 255].map((c) => {
+    const x = c / 255;
+    return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+}
+/** 塗りの上に描く線・文字の色（濃い色の上では明るい色） */
+export function contrastOn(fill) {
+  return fill && hexLum(fill) < 0.18 ? '#F2EEE6' : PALETTE.line;
+}
+/** 指定された色の塗り。未定なら null（塗らずにハッチングで示す） */
 function fillFor(colorKey) {
   const c = colorOf(colorKey);
-  return c ? c.hex : PALETTE.unknownFill;
+  return c ? c.hex : null;
+}
+
+/** 外側の囲み（変更の強調）。部品そのものは塗らない */
+function changeFrame(items, x, y, w, h, pad = 6) {
+  items.push(P.rect(n(x - pad), n(y - pad), n(w + pad * 2), n(h + pad * 2), { stroke: PALETTE.change, width: 2.2, dash: [7, 4], r: 6 }));
 }
 
 // レイアウト定数
-const FRONT = { left: 100, right: 100, top: 66, bottom: 82 };
-const SIDE = { left: 100, right: 28, top: 40, bottom: 50 };
+const FRONT = { left: 100, right: 100, top: 66, bottom: 100 };
+const SIDE = { left: 100, right: 28, top: 40, bottom: 58 };
+const INTERIOR_H = 222;
+const HEAD_H = 40;
 
 /** 正面図。yBottom（底の位置）を基準に描く。 */
 function drawFront(items, g, cx, yBottom, s, st, x0, rowTop) {
@@ -142,42 +169,46 @@ function drawFront(items, g, cx, yBottom, s, st, x0, rowTop) {
   const bodyUnknown = ['height', 'mouthWidth', 'gusset'].some((k) => ev[k].status !== 'ok');
   items.push(P.text(x0 + 6, rowTop + 12, '正面図', { size: 13, weight: 700, fill: PALETTE.muted }));
 
-  // 持ち手（模式的に袋口幅の中央寄りに1本）
+  // 持ち手：色の指定がないため、中空の帯で中立的に描く（変更があっても色を変えない）
   const a = Math.max(halfW * 0.5, 4);
   const hh = Hh * s;
   const r = Math.min(a, hh) * 0.7;
-  const hUnknown = ev.handleHeight.status !== 'ok';
-  const hSty = st('handleHeight');
-  items.push(P.path(
-    `M${n(cx - a)} ${n(yMouth)}V${n(yApex + r)}Q${n(cx - a)} ${n(yApex)} ${n(cx - a + r)} ${n(yApex)}H${n(cx + a - r)}Q${n(cx + a)} ${n(yApex)} ${n(cx + a)} ${n(yApex + r)}V${n(yMouth)}`,
-    { stroke: hSty.changed ? PALETTE.change : PALETTE.handle, width: 5, dash: hUnknown ? [7, 5] : null, cap: 'round' },
-  ));
+  const hDash = ev.handleHeight.status !== 'ok' ? [7, 5] : null;
+  const hd = `M${n(cx - a)} ${n(yMouth)}V${n(yApex + r)}Q${n(cx - a)} ${n(yApex)} ${n(cx - a + r)} ${n(yApex)}H${n(cx + a - r)}Q${n(cx + a)} ${n(yApex)} ${n(cx + a)} ${n(yApex + r)}V${n(yMouth)}`;
+  items.push(P.path(hd, { stroke: PALETTE.handle, width: 6, dash: hDash, cap: 'butt' }));
+  items.push(P.path(hd, { stroke: PALETTE.paper, width: 2.6, dash: hDash, cap: 'butt' }));
 
   // 本体（台形：上＝袋口幅、下＝底幅）
-  items.push(P.path(
-    `M${n(cx - halfW)} ${n(yMouth)}H${n(cx + halfW)}L${n(cx + halfB)} ${n(yBottom)}H${n(cx - halfB)}Z`,
-    { fill: fillFor(g.order.outerColor), stroke: PALETTE.line, width: 2, dash: bodyUnknown ? [7, 5] : null, join: 'round' },
-  ));
-  // 袋口の線
-  items.push(P.path(`M${n(cx - halfW)} ${n(yMouth + 3)}H${n(cx + halfW)}`, { stroke: PALETTE.line, width: 0.8, dash: [3, 3] }));
+  const bd = `M${n(cx - halfW)} ${n(yMouth)}H${n(cx + halfW)}L${n(cx + halfB)} ${n(yBottom)}H${n(cx - halfB)}Z`;
+  const fill = fillFor(g.order.outerColor);
+  if (fill) items.push(P.path(bd, { fill }));
+  else items.push(P.hatch(bd, cx - halfW, yMouth, halfW * 2, yBottom - yMouth));
+  items.push(P.path(bd, { stroke: PALETTE.line, width: 2, dash: bodyUnknown ? [7, 5] : null, join: 'round' }));
+  // 袋口の線（濃い色の上でも見えるように）
+  items.push(P.path(`M${n(cx - halfW + 3)} ${n(yMouth + 4)}H${n(cx + halfW - 3)}`, { stroke: contrastOn(fill), width: 1, dash: [3, 3] }));
 
-  // 寸法線
+  // 寸法線（ラベルは図の外側に置き、引出線でつなぐ）
   hDim(items, cx - halfW, cx + halfW, rowTop + 44, yMouth - 4, yMouth - 4, '袋口幅', ev.mouthWidth, st('mouthWidth'), true);
   hDim(items, cx - halfB, cx + halfB, yBottom + 20, yBottom + 4, yBottom + 4, '底幅', ev.bottomWidth, st('bottomWidth'), false, { auto: true });
   vDim(items, cx - halfW - 22, yMouth, yBottom, cx - halfW - 4, cx - halfB - 4, '本体高さ', ev.height, st('height'), 'left');
   vDim(items, cx + halfW + 22, yApex, yMouth, cx + a + 4, null, '持ち手高さ', ev.handleHeight, st('handleHeight'), 'right');
 
-  // 表地の色（色名を必ず文字で）
+  // 表地の色（色名を必ず文字で。底幅ラベルと接しないよう間隔をあける）
   const oc = st('outerColor');
   const sty = styleFor(oc);
-  const known = !!colorOf(g.order.outerColor);
-  const t = `表地：${colorLabel(g.order.outerColor)}${known ? '' : '（要確認）'}${oc.changed ? '（変更）' : ''}`;
+  const known = !!fill;
+  const t = `表地：${colorLabel(g.order.outerColor)}${oc.changed ? '（変更）' : ''}`;
   const sw = 14;
   const tw = textWidth(t, 12.5);
   const lx = cx - (tw + sw + 6) / 2;
-  const ly = yBottom + 56;
-  items.push(P.rect(n(lx - 4), ly - 11, n(tw + sw + 14), 22, { fill: sty.bg, stroke: sty.border, width: sty.border ? 1 : 0, r: 4 }));
-  items.push(P.rect(n(lx), ly - 7, sw, sw, { fill: fillFor(g.order.outerColor), stroke: PALETTE.line, width: 1, dash: known ? null : [2, 2] }));
+  const ly = yBottom + 72;
+  items.push(P.rect(n(lx - 5), ly - 12, n(tw + sw + 16), 24, { fill: sty.bg, stroke: sty.border, width: sty.border ? 1.4 : 0, r: 4 }));
+  if (known) items.push(P.rect(n(lx), ly - 7, sw, sw, { fill, stroke: PALETTE.line, width: 1 }));
+  else {
+    const sq = `M${n(lx)} ${ly - 7}h${sw}v${sw}h-${sw}Z`;
+    items.push(P.hatch(sq, lx, ly - 7, sw, sw, { step: 4 }));
+    items.push(P.path(sq, { stroke: PALETTE.line, width: 1, dash: [2, 2] }));
+  }
   items.push(P.text(n(lx + sw + 6), ly, t, { size: 12.5, fill: sty.color, weight: oc.changed ? 700 : 400 }));
 }
 
@@ -190,68 +221,75 @@ function drawSide(items, g, cx, yBottom, s, st, x0, rowTop) {
   const top = Math.min(halfG, 2);
   const unknown = ev.height.status !== 'ok' || ev.gusset.status !== 'ok';
   items.push(P.text(x0 + 6, rowTop + 12, '側面図', { size: 13, weight: 700, fill: PALETTE.muted }));
-  items.push(P.path(
-    `M${n(cx - top)} ${n(yMouth)}H${n(cx + top)}L${n(cx + halfG)} ${n(yBottom)}H${n(cx - halfG)}Z`,
-    { fill: fillFor(g.order.outerColor), stroke: PALETTE.line, width: 2, dash: unknown ? [7, 5] : null, join: 'round' },
-  ));
+  const d = `M${n(cx - top)} ${n(yMouth)}H${n(cx + top)}L${n(cx + halfG)} ${n(yBottom)}H${n(cx - halfG)}Z`;
+  const fill = fillFor(g.order.outerColor);
+  if (fill) items.push(P.path(d, { fill }));
+  else items.push(P.hatch(d, cx - halfG, yMouth, halfG * 2, yBottom - yMouth));
+  items.push(P.path(d, { stroke: PALETTE.line, width: 2, dash: unknown ? [7, 5] : null, join: 'round' }));
   vDim(items, cx - Math.max(halfG, 2) - 22, yMouth, yBottom, cx - top - 4, cx - halfG - 4, '本体高さ', ev.height, st('height'), 'left');
   hDim(items, cx - halfG, cx + halfG, yBottom + 20, yBottom + 4, yBottom + 4, 'マチ', ev.gusset, st('gusset'), false);
 }
 
-const INTERIOR_H = 214;
-
 /** 内側の模式図（縮尺なし） */
 function drawInterior(items, order, cx, y0, st, x0) {
-  items.push(P.text(x0 + 6, y0 + 12, '内側の模式図（縮尺なし）', { size: 13, weight: 700, fill: PALETTE.muted }));
+  items.push(P.text(x0 + 6, y0 + 12, '内側図（縮尺なし）', { size: 13, weight: 700, fill: PALETTE.muted }));
   const pw = 200;
   const ph = 96;
   const px = cx - pw / 2;
-  const py = y0 + 56;
-  const lsty = styleFor({ changed: st('lining').changed || st('liningColor').changed });
+  const py = y0 + 60;
+  const liningChanged = st('lining').changed || st('liningColor').changed;
+  const lsty = styleFor({ changed: liningChanged });
   let lText;
-  let fill;
+  let fill = null;
   let dash = null;
   if (order.lining === 'yes') {
     const lc = colorOf(order.liningColor);
-    lText = lc ? `裏地：あり（${lc.label}）` : '裏地：あり（色は要確認）';
-    fill = lc ? lc.hex : PALETTE.unknownFill;
+    lText = lc ? `裏地：あり〈${lc.label}〉` : '裏地：あり〈色は未定〉';
+    fill = lc ? lc.hex : null;
     if (!lc) dash = [5, 4];
   } else if (order.lining === 'none') {
     lText = '裏地：なし（表地の裏側）';
     fill = fillFor(order.outerColor);
   } else {
-    lText = '裏地：未定（要確認）';
-    fill = PALETTE.unknownFill;
+    lText = '裏地：未定';
     dash = [5, 4];
   }
-  if (lsty.border) lText += '（変更）';
-  label(items, cx, y0 + 36, [{ text: lText, bold: !!lsty.border }], 'middle', lsty);
-  items.push(P.rect(px, py, pw, ph, { fill, stroke: lsty.border || PALETTE.line, width: lsty.border ? 2.4 : 1.6, dash }));
+  if (liningChanged) lText += '（変更）';
+  label(items, cx, y0 + 36, [{ text: lText, bold: liningChanged }], 'middle', lsty);
+  const panel = `M${px} ${py}h${pw}v${ph}h-${pw}Z`;
+  if (fill) items.push(P.path(panel, { fill }));
+  else items.push(P.hatch(panel, px, py, pw, ph));
+  items.push(P.path(panel, { stroke: PALETTE.line, width: 1.6, dash }));
   items.push(P.path(`M${px} ${py}H${px + pw}`, { stroke: PALETTE.line, width: 3 }));
-  items.push(P.text(px + pw + 6, py, '袋口', { size: 11, fill: PALETTE.muted }));
+  items.push(P.text(px + pw + 13, py, '袋口', { size: 11, fill: PALETTE.muted }));
+  if (liningChanged) changeFrame(items, px, py, pw, ph, 7);
 
-  const psty = styleFor(st('pocket'));
+  // ポケット：色・大きさの指定がないため、塗らずに輪郭と斜線で示す
   const pk = order.pocket;
+  const pChanged = st('pocket').changed;
   const qw = 72;
   const qh = 40;
   const qx = cx - qw / 2;
   const qy = py + ph / 2 - qh / 2;
+  const ink = contrastOn(fill);
   if (pk === 'yes' || pk === 'undecided') {
-    items.push(P.rect(qx, qy, qw, qh, {
-      fill: '#FFFFFF', stroke: psty.border || PALETTE.line, width: psty.border ? 2.4 : 1.4, dash: pk === 'undecided' ? [4, 3] : null,
-    }));
-    items.push(P.text(cx, qy + qh / 2, pk === 'yes' ? 'ポケット' : '？', { anchor: 'middle', size: 12, fill: psty.border ? PALETTE.change : PALETTE.text, weight: 700 }));
+    const q = `M${n(qx)} ${n(qy)}h${qw}v${qh}h-${qw}Z`;
+    if (pk === 'yes') items.push(P.hatch(q, qx, qy, qw, qh, { stroke: ink, width: 0.9, step: 6 }));
+    items.push(P.path(q, { stroke: ink, width: 1.6, dash: pk === 'undecided' ? [4, 3] : [6, 2] }));
+    if (pk === 'undecided') items.push(P.text(cx, qy + qh / 2, '？', { anchor: 'middle', size: 14, weight: 700, fill: ink }));
   }
-  const ch = psty.border ? '（変更）' : '';
+  if (pChanged) changeFrame(items, qx, qy, qw, qh, 4);
+  const psty = styleFor({ changed: pChanged });
+  const ch = pChanged ? '（変更）' : '';
   const lines = pk === 'yes'
-    ? [{ text: `内ポケット：あり${ch}`, bold: true }, { text: '片面中央に1個・寸法は指定なし', size: 11.5 }]
+    ? [{ text: `内ポケット：あり${ch}`, bold: true }, { text: '片面中央に1個・色と大きさは未指定', size: 11.5 }]
     : pk === 'none'
       ? [{ text: `内ポケット：なし${ch}`, bold: !!ch }]
-      : [{ text: `内ポケット：未定（要確認）${ch}`, bold: !!ch }];
-  label(items, cx, py + ph + 10 + lines.length * 8, lines, 'middle', psty);
+      : [{ text: `内ポケット：未定${ch}`, bold: !!ch }];
+  label(items, cx, py + ph + 14 + lines.length * 8, lines, 'middle', psty);
 }
 
-// ---------- 縮尺 ----------
+// ---------- 縮尺・配置 ----------
 
 function fitScale(geoms, frontW, sideW, maxH, cap) {
   let s = cap;
@@ -263,156 +301,182 @@ function fitScale(geoms, frontW, sideW, maxH, cap) {
   return s;
 }
 
-function stateFn(changes, highlight) {
+export function stateFn(changes, highlight) {
   const set = new Set(changes);
-  return (key) => ({
-    changed: set.has(key),
-    highlight: highlight === key || (highlight === 'bottomWidth' && key === 'bottomWidth'),
-  });
+  return (key) => ({ changed: set.has(key), highlight: highlight === key });
+}
+const NONE = stateFn([], null);
+
+const NARROW_W = 420;
+const COL_W = 390;
+
+/** 図の下に添える注記（対象を明示） */
+function footnote(compare, parts) {
+  const a = [];
+  if (compare && (parts.front || parts.side)) {
+    const what = [parts.front && '正面図', parts.side && '側面図'].filter(Boolean).join('・');
+    a.push(`${what}の変更前後は共通縮尺`);
+  } else if (parts.front && parts.side) a.push('正面図と側面図は共通縮尺');
+  if (parts.interior) a.push('内側図は縮尺なし');
+  const line1 = a.join('。');
+  const line2 = parts.interior ? '持ち手・ポケットの色はこの図では指定していません' : (parts.front ? '持ち手の色はこの図では指定していません' : '');
+  return [line1, line2].filter(Boolean);
 }
 
 /**
- * 1案の図（正面図＋側面図＋内側）。
- * opts.baseline があれば変更箇所をオレンジで示す。opts.highlight で寸法線を強調。
+ * 図をまとめて組み立てる。
+ * cols: [{order, title?, st}]（1列＝現在の内容、2列＝変更前・変更後）
+ * opts: {front, side, interior, narrow, footnote}
+ * 縮尺は表示する図の種類によらず同じ式で決めるため、お客様用・作家用で図の大きさの関係が変わらない。
  */
-export function buildScene(order, opts = {}) {
-  if (opts.narrow) return buildNarrowScene(order, opts);
-  const width = 760;
-  const frontAreaW = 500;
-  const g = geometry(order);
-  const s = fitScale([g], frontAreaW - FRONT.left - FRONT.right, 260 - SIDE.left - SIDE.right, 300, 10);
-  const changes = opts.baseline ? diffOrders(opts.baseline, order).map((c) => c.key) : [];
-  const st = stateFn(changes, opts.highlight);
+export function buildFigure(cols, opts = {}) {
+  const parts = { front: opts.front !== false, side: opts.side !== false, interior: opts.interior !== false };
+  const geoms = cols.map((c) => geometry(c.order));
+  const two = cols.length === 2;
+  const narrow = !!opts.narrow;
   const items = [];
-  const body = (g.cm.H + g.cm.Hh) * s;
-  const rowTop = 0;
-  const yBottom = rowTop + FRONT.top + body;
-  drawFront(items, g, FRONT.left + (frontAreaW - FRONT.left - FRONT.right) / 2, yBottom, s, st, 0, rowTop);
-  drawSide(items, g, frontAreaW + SIDE.left + (260 - SIDE.left - SIDE.right) / 2, yBottom, s, st, frontAreaW, rowTop);
-  let y = yBottom + FRONT.bottom;
-  if (!opts.compact) {
-    items.push(P.path(`M10 ${n(y)}H${width - 10}`, { stroke: '#E2DCCF', width: 1 }));
-    drawInterior(items, order, width / 2, y + 8, st, 0);
-    y += 8 + INTERIOR_H;
+  let width;
+  let s;
+  if (narrow) {
+    width = NARROW_W;
+    s = fitScale(geoms, NARROW_W - FRONT.left - FRONT.right, NARROW_W - SIDE.left - SIDE.right, 260, 8);
+  } else if (two) {
+    width = COL_W * 2;
+    s = fitScale(geoms, COL_W - FRONT.left - FRONT.right, COL_W - SIDE.left - SIDE.right - 60, 280, 8);
+  } else {
+    width = parts.front && parts.side ? 760 : 520;
+    s = fitScale(geoms, 300, 132, 300, 10);
   }
-  items.push(P.text(width / 2, y + 4, '正面図と側面図は同じ縮尺の模式図です（寸法は数値を優先してください）', { anchor: 'middle', size: 12, fill: PALETTE.muted }));
-  return { width, height: Math.ceil(y + 18), items, scale: s, changes };
-}
-
-const NARROW_W = 420;
-
-/** 縦積み（スマートフォン・縦向き用）：正面図→側面図→内側。y0 から描き、終わりの y を返す */
-function drawStack(items, g, order, y0, s, st, bodyMax, sideMax, compact) {
-  const colW = NARROW_W;
-  let rowTop = y0;
-  let yBottom = rowTop + FRONT.top + bodyMax;
-  drawFront(items, g, FRONT.left + (colW - FRONT.left - FRONT.right) / 2, yBottom, s, st, 0, rowTop);
-  rowTop = yBottom + FRONT.bottom;
-  yBottom = rowTop + SIDE.top + sideMax;
-  drawSide(items, g, SIDE.left + (colW - SIDE.left - SIDE.right) / 2, yBottom, s, st, 0, rowTop);
-  let y = yBottom + SIDE.bottom;
-  if (!compact) {
-    items.push(P.path(`M10 ${n(y)}H${colW - 10}`, { stroke: '#E2DCCF', width: 1 }));
-    drawInterior(items, order, colW / 2, y + 8, st, 0);
-    y += 8 + INTERIOR_H;
-  }
-  return y;
-}
-
-function narrowScale(geoms) {
-  return fitScale(geoms, NARROW_W - FRONT.left - FRONT.right, NARROW_W - SIDE.left - SIDE.right, 260, 8);
-}
-
-function buildNarrowScene(order, opts) {
-  const g = geometry(order);
-  const s = narrowScale([g]);
-  const changes = opts.baseline ? diffOrders(opts.baseline, order).map((c) => c.key) : [];
-  const items = [];
-  let y = drawStack(items, g, order, 0, s, stateFn(changes, opts.highlight), (g.cm.H + g.cm.Hh) * s, g.cm.H * s, opts.compact);
-  items.push(P.text(NARROW_W / 2, y + 4, '正面図と側面図は同じ縮尺の模式図です', { anchor: 'middle', size: 12, fill: PALETTE.muted }));
-  return { width: NARROW_W, height: Math.ceil(y + 18), items, scale: s, changes };
-}
-
-function buildNarrowCompare(before, after, opts) {
-  const gb = geometry(before);
-  const ga = geometry(after);
-  const s = narrowScale([gb, ga]);
-  const changes = diffOrders(before, after).map((c) => c.key);
-  const bodyMax = Math.max((gb.cm.H + gb.cm.Hh) * s, (ga.cm.H + ga.cm.Hh) * s);
-  const sideMax = Math.max(gb.cm.H * s, ga.cm.H * s);
-  const items = [];
+  const bodyMax = Math.max(...geoms.map((g) => (g.cm.H + g.cm.Hh) * s));
+  const sideMax = Math.max(...geoms.map((g) => g.cm.H * s));
+  const header = (x, y, w, title, i) => {
+    items.push(P.rect(x + 6, y + 2, w - 12, 28, { fill: i ? PALETTE.changeBg : '#F1EEE7', stroke: i ? PALETTE.change : '#CFC8BA', width: 1, r: 5 }));
+    items.push(P.text(x + w / 2, y + 16, title, { anchor: 'middle', size: 14, weight: 700, fill: i ? PALETTE.change : PALETTE.text }));
+  };
+  const sep = (y, x1 = 10, x2 = width - 10) => items.push(P.path(`M${x1} ${n(y)}H${x2}`, { stroke: PALETTE.divider, width: 1 }));
   let y = 0;
-  [[before, gb, stateFn([], null), opts.beforeTitle || '変更前'], [after, ga, stateFn(changes, opts.highlight), opts.afterTitle || '変更後']]
-    .forEach(([o, g, st, title], i) => {
-      items.push(P.rect(6, y + 2, NARROW_W - 12, 28, { fill: i ? PALETTE.changeBg : '#F1EEE7', stroke: i ? PALETTE.change : '#CFC8BA', width: 1, r: 5 }));
-      items.push(P.text(NARROW_W / 2, y + 16, title, { anchor: 'middle', size: 14, weight: 700, fill: i ? PALETTE.change : PALETTE.text }));
-      y = drawStack(items, g, o, y + 40, s, st, bodyMax, sideMax, false) + 6;
+
+  if (narrow || !two) {
+    // 縦積み（狭い画面）または1列
+    const w = narrow ? NARROW_W : width;
+    cols.forEach((c, i) => {
+      const g = geoms[i];
+      const st = c.st || NONE;
+      if (c.title) { header(0, y, w, c.title, i); y += HEAD_H; }
+      let blockStart = true;
+      if (parts.front) {
+        const yBottom = y + FRONT.top + bodyMax;
+        const frontW = !narrow && parts.side ? 500 : w;
+        drawFront(items, g, FRONT.left + (frontW - FRONT.left - FRONT.right) / 2, yBottom, s, st, 0, y);
+        if (!narrow && parts.side) {
+          drawSide(items, g, 500 + SIDE.left + (260 - SIDE.left - SIDE.right) / 2, yBottom, s, st, 500, y);
+        }
+        y = yBottom + FRONT.bottom;
+        blockStart = false;
+      }
+      if (parts.side && (narrow || !parts.front)) {
+        if (!blockStart) sep(y - 6);
+        const yBottom = y + SIDE.top + sideMax;
+        drawSide(items, g, SIDE.left + (Math.min(w, 420) - SIDE.left - SIDE.right) / 2, yBottom, s, st, 0, y);
+        y = yBottom + SIDE.bottom;
+        blockStart = false;
+      }
+      if (parts.interior) {
+        if (!blockStart) sep(y - 6);
+        drawInterior(items, c.order, w / 2, y, st, 0);
+        y += INTERIOR_H;
+      }
+      y += 8;
     });
-  items.push(P.text(NARROW_W / 2, y + 4, '変更前と変更後は同じ縮尺の模式図です', { anchor: 'middle', size: 12, fill: PALETTE.muted }));
-  return { width: NARROW_W, height: Math.ceil(y + 18), items, scale: s, changes };
+  } else {
+    // 2列（変更前・変更後）。行ごとに底の位置をそろえる
+    cols.forEach((c, i) => c.title && header(i * COL_W, 0, COL_W, c.title, i));
+    y = cols.some((c) => c.title) ? HEAD_H : 4;
+    const top = y;
+    const frontCx = FRONT.left + (COL_W - FRONT.left - FRONT.right) / 2;
+    const sideCx = SIDE.left + 70;
+    let first = true;
+    if (parts.front) {
+      const yBottom = y + FRONT.top + bodyMax;
+      cols.forEach((c, i) => drawFront(items, geoms[i], i * COL_W + frontCx, yBottom, s, c.st || NONE, i * COL_W, y));
+      y = yBottom + FRONT.bottom;
+      first = false;
+    }
+    if (parts.side) {
+      if (!first) sep(y - 6);
+      const yBottom = y + SIDE.top + sideMax;
+      cols.forEach((c, i) => drawSide(items, geoms[i], i * COL_W + sideCx, yBottom, s, c.st || NONE, i * COL_W, y));
+      y = yBottom + SIDE.bottom;
+      first = false;
+    }
+    if (parts.interior) {
+      if (!first) sep(y - 6);
+      cols.forEach((c, i) => drawInterior(items, c.order, i * COL_W + COL_W / 2, y, c.st || NONE, i * COL_W));
+      y += INTERIOR_H;
+    }
+    items.push(P.path(`M${COL_W} ${top}V${n(y - 6)}`, { stroke: PALETTE.divider, width: 1 }));
+    y += 6;
+  }
+
+  if (opts.footnote !== false) {
+    for (const t of footnote(two, parts)) {
+      items.push(P.text(width / 2, y + 6, t, { anchor: 'middle', size: 12, fill: PALETTE.muted }));
+      y += 18;
+    }
+  }
+  return { width, height: Math.ceil(y + 8), items, scale: s };
+}
+
+/** 1案の図（画面表示用）。opts.baseline があれば変更箇所を示す。 */
+export function buildScene(order, opts = {}) {
+  const changes = opts.baseline ? diffOrders(opts.baseline, order).map((c) => c.key) : [];
+  const sc = buildFigure([{ order, st: stateFn(changes, opts.highlight) }], {
+    side: opts.side !== false, interior: !opts.compact && opts.interior !== false, narrow: opts.narrow, front: opts.front,
+    footnote: opts.footnote,
+  });
+  return { ...sc, changes };
 }
 
 /** 変更前・変更後を同じ縮尺で並べた図 */
 export function buildCompareScene(before, after, opts = {}) {
-  if (opts.narrow) return buildNarrowCompare(before, after, opts);
-  const colW = 390;
-  const width = colW * 2;
-  const gb = geometry(before);
-  const ga = geometry(after);
-  const s = fitScale([gb, ga], colW - FRONT.left - FRONT.right, colW - SIDE.left - SIDE.right - 60, 280, 8);
   const changes = diffOrders(before, after).map((c) => c.key);
-  const stBefore = stateFn([], null);
-  const stAfter = stateFn(changes, opts.highlight);
-  const items = [];
-
-  const headH = 34;
-  const heads = [opts.beforeTitle || '変更前', opts.afterTitle || '変更後'];
-  heads.forEach((h, i) => {
-    items.push(P.rect(i * colW + 6, 2, colW - 12, 28, { fill: i ? PALETTE.changeBg : '#F1EEE7', stroke: i ? PALETTE.change : '#CFC8BA', width: 1, r: 5 }));
-    items.push(P.text(i * colW + colW / 2, 16, h, { anchor: 'middle', size: 14, weight: 700, fill: i ? PALETTE.change : PALETTE.text }));
-  });
-  items.push(P.path(`M${colW} ${headH + 4}V9999`, { stroke: '#E2DCCF', width: 1, id: 'divider' }));
-
-  // 正面図の行
-  let rowTop = headH + 6;
-  const bodyMax = Math.max((gb.cm.H + gb.cm.Hh) * s, (ga.cm.H + ga.cm.Hh) * s);
-  let yBottom = rowTop + FRONT.top + bodyMax;
-  const frontCx = FRONT.left + (colW - FRONT.left - FRONT.right) / 2;
-  drawFront(items, gb, frontCx, yBottom, s, stBefore, 0, rowTop);
-  drawFront(items, ga, colW + frontCx, yBottom, s, stAfter, colW, rowTop);
-
-  // 側面図の行
-  rowTop = yBottom + FRONT.bottom;
-  const sideMax = Math.max(gb.cm.H * s, ga.cm.H * s);
-  yBottom = rowTop + SIDE.top + sideMax;
-  const sideCx = SIDE.left + 70;
-  drawSide(items, gb, sideCx, yBottom, s, stBefore, 0, rowTop);
-  drawSide(items, ga, colW + sideCx, yBottom, s, stAfter, colW, rowTop);
-
-  // 内側
-  rowTop = yBottom + SIDE.bottom;
-  drawInterior(items, before, colW / 2, rowTop, stBefore, 0);
-  drawInterior(items, after, colW + colW / 2, rowTop, stAfter, colW);
-  const y = rowTop + INTERIOR_H;
-  items.push(P.text(width / 2, y + 4, '変更前と変更後は同じ縮尺の模式図です（寸法は数値を優先してください）', { anchor: 'middle', size: 12, fill: PALETTE.muted }));
-  const height = Math.ceil(y + 18);
-  const div = items.find((i) => i.id === 'divider');
-  div.d = `M${colW} ${headH + 4}V${y - 10}`;
-  return { width, height, items, scale: s, changes };
+  const sc = buildFigure([
+    { order: before, title: opts.beforeTitle || '変更前', st: NONE },
+    { order: after, title: opts.afterTitle || '変更後', st: stateFn(changes, opts.highlight) },
+  ], { front: opts.front, side: opts.side, interior: opts.interior, narrow: opts.narrow, footnote: opts.footnote });
+  return { ...sc, changes };
 }
 
 // ---------- レンダラー ----------
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+/** 斜線（x + y = t の線）を矩形内に収めたパス */
+function hatchPath(x, y, w, h, step) {
+  let d = '';
+  for (let t = x + y + step / 2; t < x + w + y + h; t += step) {
+    const x1 = Math.max(x, t - (y + h));
+    const x2 = Math.min(x + w, t - y);
+    if (x2 <= x1) continue;
+    d += `M${n(x1)} ${n(t - x1)}L${n(x2)} ${n(t - x2)}`;
+  }
+  return d;
+}
+
+let clipSeq = 0;
 export function sceneToSvg(scene, title) {
   const out = [];
+  const uid = `k${++clipSeq}`;
+  let ci = 0;
   out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${scene.width} ${scene.height}" width="100%" role="img" aria-label="${esc(title || 'バッグの模式図')}" font-family='${FONT_FAMILY}'>`);
   out.push(`<rect x="0" y="0" width="${scene.width}" height="${scene.height}" fill="${PALETTE.paper}"/>`);
   for (const it of scene.items) {
     const dash = it.dash ? ` stroke-dasharray="${it.dash.join(' ')}"` : '';
     if (it.t === 'path') {
       out.push(`<path d="${it.d}" fill="${it.fill || 'none'}" stroke="${it.stroke || 'none'}" stroke-width="${it.width || 1}"${dash} stroke-linecap="${it.cap || 'butt'}" stroke-linejoin="${it.join || 'miter'}"/>`);
+    } else if (it.t === 'hatch') {
+      const id = `${uid}c${ci++}`;
+      out.push(`<clipPath id="${id}"><path d="${it.clip}"/></clipPath><path d="${hatchPath(it.x, it.y, it.w, it.h, it.step)}" clip-path="url(#${id})" fill="none" stroke="${it.stroke}" stroke-width="${it.width}"/>`);
     } else if (it.t === 'rect') {
       const stroke = it.stroke && it.width ? ` stroke="${it.stroke}" stroke-width="${it.width}"` : '';
       out.push(`<rect x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" rx="${it.r || 0}" fill="${it.fill || 'none'}"${stroke}${dash}/>`);
@@ -444,6 +508,14 @@ export function drawSceneToCanvas(ctx, scene, ox, oy, k) {
         ctx.lineJoin = it.join || 'miter';
         ctx.stroke(p);
       }
+    } else if (it.t === 'hatch') {
+      ctx.save();
+      ctx.clip(new Path2D(it.clip));
+      ctx.setLineDash([]);
+      ctx.strokeStyle = it.stroke;
+      ctx.lineWidth = it.width;
+      ctx.stroke(new Path2D(hatchPath(it.x, it.y, it.w, it.h, it.step)));
+      ctx.restore();
     } else if (it.t === 'rect') {
       const p = new Path2D();
       const r = it.r || 0;
@@ -469,5 +541,3 @@ export function drawSceneToCanvas(ctx, scene, ox, oy, k) {
   }
   ctx.restore();
 }
-
-export { POCKET_CONDITION };

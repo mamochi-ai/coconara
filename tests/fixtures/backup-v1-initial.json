@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "app": "katachi-awase",
+  "exported_at": "2026-11-12T01:00:00.000Z",
+  "data": {
+    "current": {
+      "orderNo": "",
+      "memo": "",
+      "dims": {
+        "height": "30",
+        "mouthWidth": "",
+        "gusset": "",
+        "handleHeight": ""
+      },
+      "outerColor": "",
+      "lining": "undecided",
+      "liningColor": "",
+      "pocket": "undecided"
+    },
+    "baseline": null,
+    "version": 1,
+    "baseline_version": null,
+    "is_sample": false
+  }
+}

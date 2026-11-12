@@ -60,23 +60,39 @@ const setField = async (page, sel, value) => { await page.fill(sel, value); awai
 const tapRadio = (page, name, value) => page.locator(`input[name="${name}"][value="${value}"]`).locator('..').tap();
 const ensureInputVisible = async (page) => { if (!(await page.locator('#f-height').isVisible())) await page.tap('#tab-input'); };
 
-async function makePng(page, mode) {
+/** 保存前プレビューで設定を選び、表示された画像（1枚以上）を取り出す */
+async function makePngs(page, opts = {}) {
   await page.tap('#btnExport');
-  await page.waitForSelector('#previewImg');
-  if (mode) {
-    await page.locator(`input[name="pmode"][value="${mode}"]`).locator('..').tap();
-    await page.waitForTimeout(100);
-    await page.waitForSelector('#previewImg');
+  await page.waitForSelector('.preview-img');
+  if (opts.audience) {
+    const r = page.locator(`input[name="paud"][value="${opts.audience}"]`);
+    if (!(await r.isChecked())) { await r.locator('..').tap(); await page.waitForSelector('.preview-img'); }
   }
-  const data = await page.$eval('#previewImg', async (img) => {
+  for (const k of ['side', 'interior', 'memo']) {
+    if (opts[k] === undefined) continue;
+    const cb = page.locator(`#opt-${k}`);
+    if ((await cb.isChecked()) !== opts[k] && !(await cb.isDisabled())) {
+      await cb.locator('..').tap();
+      await page.waitForSelector('.preview-img');
+    }
+  }
+  const imgs = await page.$$eval('.preview-img', (els) => Promise.all(els.map(async (img) => {
     const r = await fetch(img.src);
     const buf = new Uint8Array(await r.arrayBuffer());
     let s = '';
     for (let i = 0; i < buf.length; i++) s += String.fromCharCode(buf[i]);
     return { b64: btoa(s), w: img.naturalWidth, h: img.naturalHeight };
-  });
+  })));
+  const text = await page.textContent('.modal');
+  const controls = await page.evaluate(() => ['side', 'interior', 'memo'].map((k) => ({ k, checked: document.getElementById(`opt-${k}`).checked, disabled: document.getElementById(`opt-${k}`).disabled })));
+  if (opts.screenshot) await page.screenshot({ path: opts.screenshot });
   await page.tap('.modal-actions .btn');
-  return data;
+  return { imgs, text, controls };
+}
+async function savePngs(name, res) {
+  for (let i = 0; i < res.imgs.length; i++) {
+    await writeFile(`${OUT}${name}${res.imgs.length > 1 ? `-${i + 1}` : ''}.png`, Buffer.from(res.imgs[i].b64, 'base64'));
+  }
 }
 
 // ---------- iPad 横向き ----------
@@ -87,7 +103,7 @@ await check('1. サンプルの底幅と変更点が正しい', async () => {
   const bottom = (await page.textContent('#bottomReadout')).trim();
   assert(bottom === '35 cm', `底幅 ${bottom}`);
   const ch = await changesText(page);
-  const expect = ['袋口幅：40 → 45cm', '底幅：30 → 35cm（袋口幅の変更に伴う）', '内ポケット：なし → あり'];
+  const expect = ['袋口幅：40 → 45cm', '底幅：30 → 35cm（袋口幅変更に伴う）', '内ポケット：なし → あり', 'お客様に確認したいこと：内容を変更'];
   assert(JSON.stringify(ch) === JSON.stringify(expect), JSON.stringify(ch));
   assert(await page.isVisible('#sampleBanner'), 'サンプル表示');
   const svg = await page.innerHTML('#compareBody');
@@ -113,17 +129,18 @@ await check('6. 元の値に戻すと変更表示が消える', async () => {
   assert(!cls.includes('is-changed'), '入力欄の変更表示');
   await setField(page, '#f-mouthWidth', '40');
   await tapRadio(page, 'pocket', 'none');
+  await setField(page, '#f-questions', '');
   const empty = await visibleText(page, '.list-block.changes');
-  assert(empty.includes('変更点はありません'), empty);
+  assert(empty.includes('比較元からの変更はありません'), empty);
   assert((await page.textContent('#tab-compare')).trim() === '比較', 'タブの変更件数が消える');
 });
 
 await check('4. 40 と 40.0 は同じ値として扱う', async () => {
   await setField(page, '#f-mouthWidth', '40.0');
   const empty = await visibleText(page, '.list-block.changes');
-  assert(empty.includes('変更点はありません'), empty);
+  assert(empty.includes('比較元からの変更はありません'), empty);
   await setField(page, '#f-mouthWidth', '４０');
-  assert((await visibleText(page, '.list-block.changes')).includes('変更点はありません'), '全角');
+  assert((await visibleText(page, '.list-block.changes')).includes('比較元からの変更はありません'), '全角');
 });
 
 await check('2. マチが袋口幅以上でエラー、画像出力も止まる', async () => {
@@ -154,7 +171,7 @@ await check('3. 未入力と0を混同しない', async () => {
   assert(pend.includes('マチ：未入力'), pend);
   assert((await page.textContent('#bottomReadout')).includes('入力すると計算'), '空欄なら底幅は未計算');
   const svg = await page.innerHTML('#diagram');
-  assert(svg.includes('マチ ？cm（要確認）'), '図で？表示');
+  assert(svg.includes('マチ ？cm（未入力）'), '図で？表示');
   await page.screenshot({ path: `${OUT}ipad-gusset-empty.png` });
   await setField(page, '#f-gusset', '10');
 });
@@ -164,37 +181,63 @@ await check('7. 裏地・ポケットの未定／あり／なしが反映され�
   const svg = () => page.innerHTML('#diagram');
   const pend = () => visibleText(page, '.list-block.pending');
   await tapRadio(page, 'lining', 'undecided');
-  assert((await svg()).includes('裏地：未定（要確認）'), 'lining undecided');
+  assert((await svg()).includes('裏地：未定'), 'lining undecided');
   assert((await pend()).includes('裏地：未定'), 'pending lining');
   assert(await page.isHidden('#liningColorField'), '裏地色は非表示');
   await tapRadio(page, 'lining', 'yes');
   assert(await page.isVisible('#liningColorField'), '裏地色を表示');
-  assert((await svg()).includes('裏地：あり（色は要確認）'), 'lining yes no color');
+  assert((await svg()).includes('裏地：あり〈色は未定〉'), 'lining yes no color');
   assert((await pend()).includes('裏地の色：未定'), 'pending lining color');
   await tapRadio(page, 'liningColor', 'navy');
-  assert((await svg()).includes('裏地：あり（ネイビー）'), 'lining navy');
+  assert((await svg()).includes('裏地：あり〈ネイビー〉'), 'lining navy');
   await tapRadio(page, 'pocket', 'undecided');
-  assert((await svg()).includes('内ポケット：未定（要確認）'), 'pocket undecided');
+  assert((await svg()).includes('内ポケット：未定'), 'pocket undecided');
   await tapRadio(page, 'pocket', 'yes');
   assert((await svg()).includes('片面中央に1個'), 'pocket yes');
   assert(await page.isVisible('#pocketCondition'), 'ポケット条件の表示');
   const ch = await changesText(page);
-  assert(ch.includes('裏地：なし → あり') && ch.includes('裏地の色：—（裏地なし／未定） → ネイビー') && ch.includes('内ポケット：なし → あり'), JSON.stringify(ch));
+  assert(ch.includes('裏地：なし → あり〈ネイビー〉') && !ch.some((t) => t.startsWith('裏地の色')) && ch.includes('内ポケット：なし → あり'), JSON.stringify(ch));
   await page.screenshot({ path: `${OUT}ipad-lining-pocket.png`, fullPage: false });
   await tapRadio(page, 'lining', 'none');
 });
 
-await check('8. PNGに日本語・寸法線・変更点が入り、長いメモも切れない（比較画像・初回画像）', async () => {
-  const short = await makePng(page);
-  await writeFile(`${OUT}export-compare.png`, Buffer.from(short.b64, 'base64'));
-  const longMemo = 'ご希望：肩掛けできる長さの持ち手。'.repeat(25) + '\n改行後の行もあります。\n\n最後の行：ここまで表示されていればOK';
+await check('8. お客様用／作家用のPNG（日本語・寸法線・変更点）と出力設定', async () => {
+  // 現在：裏地あり〈ネイビー〉・ポケットあり（比較元は裏地なし・ポケットなし）
+  const cu = await makePngs(page, { audience: 'customer', side: false, interior: false, memo: false, screenshot: `${OUT}ipad-preview-customer.png` });
+  await savePngs('export-customer', cu);
+  assert(cu.imgs.length === 1 && cu.imgs[0].w === 2000, `お客様用 ${cu.imgs.length}枚 幅${cu.imgs[0].w}`);
+  const interior = cu.controls.find((c) => c.k === 'interior');
+  assert(interior.checked && interior.disabled, '裏地・ポケット変更で内側図は自動で含める');
+  assert(cu.text.includes('裏地・ポケットの変更があるため含めます'), '理由の表示');
+  const mk = await makePngs(page, { audience: 'maker' });
+  await savePngs('export-maker', mk);
+  assert(mk.controls.every((c) => c.checked && c.disabled), '作家用は全部含める');
+  assert(mk.imgs.reduce((a, x) => a + x.h, 0) > cu.imgs.reduce((a, x) => a + x.h, 0), '作家用の方が詳しい');
+  // 設定は保存され、比較元は変わらない
+  await page.waitForTimeout(500);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('katachi-awase:doc')).data);
+  assert(saved.output.audience === 'maker', '出力設定の保存');
+  assert(saved.baseline.lining === 'none', '比較元は不変');
+  await makePngs(page, { audience: 'customer' });
+});
+
+await check('7b. 長い注文メモ・確認事項は複数枚に分け、各画像に番号を入れる', async () => {
+  // 入力上限（各1000文字）いっぱいの文章
+  const tail = '\n改行後の行もあります。\n\n最後の行：ここまで表示されていればOK';
+  const longMemo = 'ご希望：肩掛けできる長さの持ち手。A4のクリアファイルが入る大きさを希望。'.repeat(30).slice(0, 1000 - tail.length) + tail;
   await page.fill('#f-memo', longMemo);
-  const long = await makePng(page);
-  await writeFile(`${OUT}export-compare-longmemo.png`, Buffer.from(long.b64, 'base64'));
-  assert(long.h > short.h + 100, `長いメモで高さが伸びる ${short.h} → ${long.h}`);
-  const single = await makePng(page, 'single');
-  await writeFile(`${OUT}export-single.png`, Buffer.from(single.b64, 'base64'));
-  assert(single.w === 2000, `幅 ${single.w}`);
+  const qTail = '確認事項の最後の行';
+  await page.fill('#f-questions', ('内ポケットの大きさは、お任せでよろしいですか？\n'.repeat(40)).slice(0, 1000 - qTail.length) + qTail);
+  assert((await page.inputValue('#f-memo')).endsWith('ここまで表示されていればOK'), 'メモ入力');
+  const cu = await makePngs(page, { audience: 'customer', memo: true, screenshot: `${OUT}ipad-preview-multi.png` });
+  await savePngs('export-customer-long', cu);
+  assert(cu.imgs.length >= 2, `${cu.imgs.length}枚`);
+  assert(cu.text.includes(`${cu.imgs.length} 枚に分けました`), '枚数の案内');
+  assert(cu.imgs.every((x) => x.w === 2000), '幅は一定');
+  const mk = await makePngs(page, { audience: 'maker' });
+  await savePngs('export-maker-long', mk);
+  assert(mk.imgs.length >= 2, `作家用 ${mk.imgs.length}枚`);
+  await makePngs(page, { audience: 'customer', memo: false });
 });
 
 let backupPath;
@@ -207,7 +250,7 @@ await check('9. JSONで比較元を含めて復元できる', async () => {
   await dl.saveAs(backupPath);
   await page.tap('.modal-actions .btn');
   const json = JSON.parse(await readFile(backupPath, 'utf8'));
-  assert(json.schema_version === 1 && json.data.baseline && json.data.baseline_version === 1, 'JSONの内容');
+  assert(json.schema_version === 2 && json.data.output && json.data.baseline && json.data.baseline_version === 1, 'JSONの内容');
   // 消去してから復元
   await page.tap('#btnData');
   await page.tap('#dNew');
@@ -250,6 +293,60 @@ await check('再読み込みで端末内保存から復元される', async () =
   assert(await page.evaluate(() => window.__katachi.state.doc.baselineVersion === 1), '比較元');
 });
 
+await check('11. 旧形式（schema 1）のJSONを読み込める', async () => {
+  const fixture = fileURLToPath(new URL('../fixtures/backup-v1.json', import.meta.url));
+  const old = JSON.parse(await readFile(fixture, 'utf8'));
+  await page.setInputFiles('#fileInput', fixture);
+  await page.waitForSelector('.modal h2:text("バックアップから復元")');
+  await page.tap('.modal-actions .btn-danger');
+  const doc = await page.evaluate(() => window.__katachi.state.doc);
+  assert(JSON.stringify(doc.baseline.dims) === JSON.stringify(old.data.baseline.dims), '比較元の寸法');
+  assert(doc.baseline.lining === old.data.baseline.lining && doc.current.liningColor === 'navy', '仕様');
+  assert(doc.current.questions === '' && doc.output.audience === 'customer', '新項目は初期値');
+  assert((await page.inputValue('#f-mouthWidth')) === '45', '入力欄');
+});
+
+await check('ケース1・8・9：大きな変更・黒い表地（お客様用PNG）', async () => {
+  await setField(page, '#f-height', '40');
+  await setField(page, '#f-gusset', '1');
+  await setField(page, '#f-handleHeight', '10');
+  await setField(page, '#f-mouthWidth', '40');
+  await tapRadio(page, 'outerColor', 'black');
+  await page.fill('#f-memo', 'A4のクリアファイルが入る大きさを希望。');
+  await page.fill('#f-questions', '内ポケットの大きさは、お任せでよろしいですか？');
+  await page.tap('#tab-compare');
+  const ch = await changesText(page);
+  for (const t of ['本体高さ：30 → 40cm', 'マチ：10 → 1cm', '底幅：30 → 39cm（マチ変更に伴う）', '持ち手高さ：15 → 10cm', '表地：生成り → ブラック', '裏地：なし → あり〈ネイビー〉', '内ポケット：なし → あり']) {
+    assert(ch.includes(t), `${t} / ${JSON.stringify(ch)}`);
+  }
+  await page.screenshot({ path: `${OUT}ipad-compare-black.png` });
+  const cu = await makePngs(page, { audience: 'customer', memo: false });
+  await savePngs('case1-customer', cu);
+  assert(cu.controls.find((c) => c.k === 'side').checked, 'マチ変更で側面図');
+  const mk = await makePngs(page, { audience: 'maker' });
+  await savePngs('case1-maker', mk);
+  await makePngs(page, { audience: 'customer' });
+});
+
+await check('ケース2・5：袋口幅だけの変更／比較元なしの初回', async () => {
+  // 比較元に合わせてから袋口幅だけ変える
+  const p2 = await newPage(IPAD_L);
+  await loadSample(p2);
+  await setField(p2, '#f-questions', '');
+  await tapRadio(p2, 'pocket', 'none');
+  const cu = await makePngs(p2, { audience: 'customer' });
+  await savePngs('case2-customer', cu);
+  assert(!cu.controls.find((c) => c.k === 'side').disabled && !cu.controls.find((c) => c.k === 'side').checked, '側面図は省略');
+  await p2.tap('#btnData'); await p2.tap('#dNew'); await p2.tap('.modal-actions .btn-danger');
+  for (const [k, v] of [['orderNo', 'NEW-01'], ['height', '28'], ['mouthWidth', '36'], ['gusset', '8'], ['handleHeight', '14']]) await p2.fill(`#f-${k}`, v);
+  await tapRadio(p2, 'outerColor', 'navy');
+  await tapRadio(p2, 'lining', 'undecided');
+  const init = await makePngs(p2, { audience: 'customer' });
+  await savePngs('case5-initial-customer', init);
+  assert(p2.errors.length === 0, p2.errors.join(' / '));
+  await p2.context().close();
+});
+
 // ---------- 保存拒否 ----------
 await check('11. 保存が拒否された環境でもアプリが停止しない', async () => {
   const p = await newPage(IPAD_L, { denyStorage: true });
@@ -259,7 +356,7 @@ await check('11. 保存が拒否された環境でもアプリが停止しない
   await p.fill('#f-height', '31');
   await p.waitForTimeout(500);
   assert((await p.textContent('#saveStatus')).includes('編集と画像作成は続けられます'), '失敗の表示');
-  const png = await makePng(p);
+  const png = (await makePngs(p)).imgs[0];
   assert(png.w > 0 && png.h > 0, 'PNG出力');
   await p.screenshot({ path: `${OUT}storage-denied.png` });
   assert(p.errors.length === 0, p.errors.join(' / '));

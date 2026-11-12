@@ -1,7 +1,9 @@
 // かたち合わせ: データ定義・数値の正規化・検証・変更判定
 // 数値は 0.1cm 単位の整数（tenths）で扱い、浮動小数点の誤差を避ける。
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+/** 読み込める形式（1 = 最初の試作。確認事項・出力設定がない） */
+export const SUPPORTED_SCHEMAS = [1, 2];
 
 export const DIMS = [
   {
@@ -43,13 +45,15 @@ export const TRI = [
 export const triLabel = (key) => (TRI.find((t) => t.key === key) || TRI[0]).label;
 
 export const POCKET_CONDITION = '内側の片面中央に1個（寸法はこの確認では指定しません）';
+export const POCKET_SHORT = 'あり（内側の片面中央に1個・大きさと色は未指定）';
 
-export const LIMITS = { orderNo: 60, memo: 1000, dimRaw: 12 };
+export const LIMITS = { orderNo: 60, memo: 1000, questions: 1000, dimRaw: 12 };
 
 export function emptyOrder() {
   return {
     orderNo: '',
     memo: '',
+    questions: '',
     dims: { height: '', mouthWidth: '', gusset: '', handleHeight: '' },
     outerColor: '',
     lining: 'undecided',
@@ -58,14 +62,20 @@ export function emptyOrder() {
   };
 }
 
+/** 確認画像の出力設定（初期値）。お客様用が標準。注文メモは初期状態では載せない */
+export function defaultOutput() {
+  return { audience: 'customer', side: false, interior: false, memo: false };
+}
+
 export function emptyDoc() {
-  return { current: emptyOrder(), baseline: null, version: 1, baselineVersion: null, isSample: false };
+  return { current: emptyOrder(), baseline: null, version: 1, baselineVersion: null, isSample: false, output: defaultOutput() };
 }
 
 export function cloneOrder(o) {
   return {
     orderNo: o.orderNo,
     memo: o.memo,
+    questions: o.questions || '',
     dims: { ...o.dims },
     outerColor: o.outerColor,
     lining: o.lining,
@@ -140,7 +150,26 @@ export function evaluateDims(dims) {
 // ---------- 解析（要確認・エラー） ----------
 
 export function effectiveLiningColor(o) {
-  return o.lining === 'yes' ? o.liningColor || '' : null; // null = 対象外
+  return o.lining === 'yes' ? o.liningColor || '' : null; // null = 対象外または裏地未定
+}
+
+/**
+ * 裏地の色の表示。まとめた「なし／未定」表示は使わない。
+ * 裏地なし → 対象外、裏地未定 → 未定（確定扱いにしない）、裏地あり・色未選択 → 未定
+ */
+export function liningColorValue(o) {
+  if (o.lining === 'none') return { cmp: 'na', text: '対象外' };
+  if (o.lining === 'yes' && colorOf(o.liningColor)) return { cmp: o.liningColor, text: colorOf(o.liningColor).label };
+  return { cmp: 'undecided', text: '未定' };
+}
+
+/** 裏地のまとめ表示：「あり〈ネイビー〉」「あり〈色は未定〉」「なし」「未定」 */
+export function liningSummary(o) {
+  if (o.lining === 'yes') return `あり〈${colorOf(o.liningColor) ? colorOf(o.liningColor).label : '色は未定'}〉`;
+  return triLabel(o.lining);
+}
+export function pocketSummary(o) {
+  return o.pocket === 'yes' ? POCKET_SHORT : triLabel(o.pocket);
 }
 
 export function analyze(o) {
@@ -181,11 +210,12 @@ export function fieldValues(o) {
   list.push({ key: 'handleHeight', label: '持ち手高さ', unit: 'cm', ...dimCompare(dims.handleHeight) });
   list.push({ key: 'outerColor', label: '表地の色', cmp: o.outerColor || '', text: colorLabel(o.outerColor) });
   list.push({ key: 'lining', label: '裏地', cmp: o.lining, text: triLabel(o.lining) });
-  const lc = effectiveLiningColor(o);
-  list.push({ key: 'liningColor', label: '裏地の色', cmp: lc === null ? '-' : lc, text: lc === null ? '—（裏地なし／未定）' : colorLabel(lc) });
+  list.push({ key: 'liningColor', label: '裏地の色', ...liningColorValue(o) });
   list.push({ key: 'pocket', label: '内ポケット', cmp: o.pocket, text: triLabel(o.pocket) });
   const memo = String(o.memo || '').trim();
   list.push({ key: 'memo', label: '注文メモ', cmp: memo, text: memo ? 'あり' : 'なし', memo: true });
+  const q = String(o.questions || '').trim();
+  list.push({ key: 'questions', label: 'お客様に確認したいこと', cmp: q, text: q ? 'あり' : 'なし', memo: true });
   return list;
 }
 
@@ -201,7 +231,7 @@ export function diffOrders(before, after) {
       const causes = [];
       if (changes.some((x) => x.key === 'mouthWidth')) causes.push('袋口幅');
       if (changes.some((x) => x.key === 'gusset')) causes.push('マチ');
-      if (causes.length) c.note = `（${causes.join('・')}の変更に伴う）`;
+      if (causes.length) c.note = `（${causes.join('・')}変更に伴う）`;
       else c.note = '（自動計算）';
     }
     changes.push(c);
@@ -210,7 +240,7 @@ export function diffOrders(before, after) {
 }
 
 export function changeText(c) {
-  if (c.from.memo) return '注文メモ：内容を変更';
+  if (c.from.memo) return `${c.label}：内容を変更`;
   let body;
   if (c.from.unit && c.from.num !== null && c.to.num !== null) {
     body = `${fmt(c.from.num)} → ${fmt(c.to.num)}cm`;
@@ -220,12 +250,40 @@ export function changeText(c) {
   return `${c.label}：${body}${c.note || ''}`;
 }
 
+/**
+ * 変更点を、同じ意味の項目をまとめた短い一覧にする（お客様用・画面表示用）。
+ * 裏地の有無が変わった場合は色も含めて1行にまとめ、裏地ありのまま色だけ変えた場合は
+ * 「裏地の色：A → B」と示す。opts.memo: 注文メモの変更を含める。確認事項の変更は含めない。
+ */
+export function summarizeChanges(before, after, opts = {}) {
+  const diff = diffOrders(before, after);
+  const keys = new Set(diff.map((c) => c.key));
+  const out = [];
+  for (const c of diff) {
+    if (c.key === 'lining') {
+      out.push({ keys: ['lining', 'liningColor'], text: `裏地：${liningSummary(before)} → ${liningSummary(after)}` });
+    } else if (c.key === 'liningColor') {
+      if (!keys.has('lining')) out.push({ keys: ['liningColor'], text: changeText(c) });
+    } else if (c.key === 'outerColor') {
+      out.push({ keys: ['outerColor'], text: `表地：${c.from.text} → ${c.to.text}` });
+    } else if (c.key === 'questions') {
+      if (opts.questions) out.push({ keys: ['questions'], text: changeText(c) });
+    } else if (c.key === 'memo') {
+      if (opts.memo) out.push({ keys: ['memo'], text: changeText(c) });
+    } else {
+      out.push({ keys: [c.key], text: changeText(c) });
+    }
+  }
+  return out;
+}
+
 // ---------- サンプル ----------
 
 export function sampleDoc() {
   const baseline = {
     orderNo: 'SAMPLE-001',
     memo: '架空のサンプルです。普段使い用。A4のクリアファイルが入る大きさを希望。',
+    questions: '',
     dims: { height: '30', mouthWidth: '40', gusset: '10', handleHeight: '15' },
     outerColor: 'kinari',
     lining: 'none',
@@ -235,7 +293,8 @@ export function sampleDoc() {
   const current = cloneOrder(baseline);
   current.dims.mouthWidth = '45';
   current.pocket = 'yes';
-  return { current, baseline, version: 2, baselineVersion: 1, isSample: true };
+  current.questions = '内ポケットの大きさは、お任せでよろしいですか？';
+  return { current, baseline, version: 2, baselineVersion: 1, isSample: true, output: defaultOutput() };
 }
 
 export function hasContent(doc) {
@@ -243,7 +302,7 @@ export function hasContent(doc) {
   const e = emptyOrder();
   const c = doc.current;
   return (
-    c.orderNo !== e.orderNo || c.memo !== e.memo || c.outerColor !== e.outerColor ||
+    c.orderNo !== e.orderNo || c.memo !== e.memo || (c.questions || '') !== '' || c.outerColor !== e.outerColor ||
     c.lining !== e.lining || c.liningColor !== e.liningColor || c.pocket !== e.pocket ||
     DIM_KEYS.some((k) => c.dims[k] !== '')
   );
@@ -262,6 +321,7 @@ export function serializeDoc(doc, now = new Date()) {
       version: doc.version,
       baseline_version: doc.baselineVersion,
       is_sample: !!doc.isSample,
+      output: { ...defaultOutput(), ...(doc.output || {}) },
     },
   };
 }
@@ -271,6 +331,10 @@ function validateOrder(o, where) {
   if (!o || typeof o !== 'object' || Array.isArray(o)) fail('形式が正しくありません');
   if (typeof o.orderNo !== 'string' || o.orderNo.length > LIMITS.orderNo) fail('注文番号の形式が正しくありません');
   if (typeof o.memo !== 'string' || o.memo.length > LIMITS.memo) fail('注文メモの形式が正しくありません');
+  // 旧形式（schema 1）には確認事項がない。ない場合だけ空欄とし、ほかの項目は補完しない
+  if (o.questions !== undefined && (typeof o.questions !== 'string' || o.questions.length > LIMITS.questions)) {
+    fail('お客様に確認したいことの形式が正しくありません');
+  }
   if (!o.dims || typeof o.dims !== 'object') fail('寸法がありません');
   const dims = {};
   for (const def of DIMS) {
@@ -286,7 +350,7 @@ function validateOrder(o, where) {
   if (!triOk(o.lining)) fail('裏地の値が正しくありません');
   if (!triOk(o.pocket)) fail('内ポケットの値が正しくありません');
   return {
-    orderNo: o.orderNo, memo: o.memo, dims, outerColor: o.outerColor,
+    orderNo: o.orderNo, memo: o.memo, questions: o.questions === undefined ? '' : o.questions, dims, outerColor: o.outerColor,
     lining: o.lining, liningColor: o.liningColor, pocket: o.pocket,
   };
 }
@@ -300,7 +364,7 @@ export function parseBackup(text) {
     throw new Error('JSONとして読み取れませんでした（ファイルが壊れている可能性があります）');
   }
   if (!obj || typeof obj !== 'object') throw new Error('形式が正しくありません');
-  if (obj.schema_version !== SCHEMA_VERSION) {
+  if (!SUPPORTED_SCHEMAS.includes(obj.schema_version)) {
     throw new Error(`対応していない形式です（schema_version: ${String(obj.schema_version)}）`);
   }
   const d = obj.data;
@@ -319,5 +383,14 @@ export function parseBackup(text) {
     if (baselineVersion !== null) throw new Error('比較元がないのに比較元の版番号があります');
     baselineVersion = null;
   }
-  return { current, baseline, version, baselineVersion, isSample: d.is_sample === true };
+  return { current, baseline, version, baselineVersion, isSample: d.is_sample === true, output: parseOutput(d.output) };
+}
+
+/** 出力設定は注文内容ではないため、不正・欠落の場合は初期値に戻す */
+export function parseOutput(v) {
+  const o = defaultOutput();
+  if (!v || typeof v !== 'object') return o;
+  if (v.audience === 'customer' || v.audience === 'maker') o.audience = v.audience;
+  for (const k of ['side', 'interior', 'memo']) if (typeof v[k] === 'boolean') o[k] = v[k];
+  return o;
 }

@@ -48,8 +48,13 @@
             <div class="change-note" aria-live="polite"></div>
           </div>
           <div class="field" data-field="memo">
-            <label for="f-memo">注文メモ <span class="opt">任意</span></label>
+            <label for="f-memo">注文メモ <span class="opt">任意・お客様用画像への掲載は出力時に選べます</span></label>
             <textarea id="f-memo" name="memo" rows="3" maxlength="1000"></textarea>
+            <div class="change-note"></div>
+          </div>
+          <div class="field" data-field="questions">
+            <label for="f-questions">お客様に確認したいこと <span class="opt">任意・確認画像にそのまま載ります</span></label>
+            <textarea id="f-questions" name="questions" rows="2" maxlength="1000" placeholder="例：内ポケットの大きさは、お任せでよろしいですか？"></textarea>
             <div class="change-note"></div>
           </div>
           <div class="field">
@@ -94,7 +99,7 @@
             <p class="hint" id="pocketCondition" hidden>ありの場合：内側の片面中央に1個。ポケットの寸法はこの確認では指定しません。</p>
             <div class="change-note"></div>
           </div>
-          <p class="hint small">色の見本は目安です。「未定」は要確認として扱います。</p>
+          <p class="hint small">色の見本は目安です。「未定」は「未入力・未定の項目」に表示されます。</p>
         </fieldset>
 
         <p class="backup-hint">ブラウザの保存は消えることがあります。区切りごとに「データ」からバックアップを書き出してください。</p>
