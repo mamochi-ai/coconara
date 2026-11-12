@@ -197,7 +197,7 @@ test('JSON：壊れたもの・不正な値は拒否する', () => {
   const bad3 = structuredClone(good); bad3.data.baseline_version = 5;
   assert.throws(() => parseBackup(JSON.stringify(bad3)), /版番号/);
   const bad4 = structuredClone(good); bad4.data.baseline.dims.gusset = '40';
-  assert.throws(() => parseBackup(JSON.stringify(bad4)), /比較元/);
+  assert.throws(() => parseBackup(JSON.stringify(bad4)), /変更前/);
   const bad5 = structuredClone(good); bad5.data.current.pocket = 'maybe';
   assert.throws(() => parseBackup(JSON.stringify(bad5)), /内ポケット/);
 });

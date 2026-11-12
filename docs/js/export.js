@@ -72,7 +72,7 @@ function blocksFor(ctx, report, doc) {
     const n = report.specCount;
     heading(group, n ? `仕様変更（${n}件）` : '変更点', PALETTE.change);
     if (n === 0 && report.textNotes.length === 0) {
-      para(group, '比較元からの変更はありません', { size: 18 });
+      para(group, '変更前からの変更はありません', { size: 18 });
       return;
     }
     if (n === 0) para(group, '仕様変更なし', { size: 18, weight: 700 });
@@ -142,7 +142,7 @@ function blocksFor(ctx, report, doc) {
 
   // 注文メモ
   if (report.memo !== null) {
-    heading('detail', `注文メモ${report.memoChanged && maker ? '（比較元から変更あり）' : ''}`);
+    heading('detail', `注文メモ${report.memoChanged && maker ? '（変更前から変更あり）' : ''}`);
     para('detail', report.memo || '（なし）', { size: 17, color: report.memo ? PALETTE.text : PALETTE.muted });
   }
 
@@ -302,8 +302,10 @@ export function imageFileName({ orderNo, version, audience, index = 1, total = 1
 
 /** 出力前のチェック。不正な値があれば理由の一覧を返す。 */
 export function exportBlockers(doc) {
-  const list = analyze(doc.current).errors.map((e) => `${e.label}：${e.message}`);
-  if (doc.baseline) for (const e of analyze(doc.baseline).errors) list.push(`比較元の${e.label}：${e.message}`);
+  // 「マチ：マチは…」のように項目名が重ならないようにする
+  const text = (e) => (e.message.startsWith(e.label) ? e.message : `${e.label}：${e.message}`);
+  const list = analyze(doc.current).errors.map(text);
+  if (doc.baseline) for (const e of analyze(doc.baseline).errors) list.push(`変更前の${text(e)}`);
   return list;
 }
 

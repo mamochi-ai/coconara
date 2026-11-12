@@ -138,16 +138,16 @@ await check('6. 元の値に戻すと変更表示が消える', async () => {
   await tapRadio(page, 'pocket', 'none');
   await setField(page, '#f-questions', '');
   const empty = await visibleText(page, '.list-block.changes');
-  assert(empty.includes('比較元からの変更はありません'), empty);
+  assert(empty.includes('変更前からの変更はありません'), empty);
   assert((await page.textContent('#tab-compare')).trim() === '比較', 'タブの変更件数が消える');
 });
 
 await check('4. 40 と 40.0 は同じ値として扱う', async () => {
   await setField(page, '#f-mouthWidth', '40.0');
   const empty = await visibleText(page, '.list-block.changes');
-  assert(empty.includes('比較元からの変更はありません'), empty);
+  assert(empty.includes('変更前からの変更はありません'), empty);
   await setField(page, '#f-mouthWidth', '４０');
-  assert((await visibleText(page, '.list-block.changes')).includes('比較元からの変更はありません'), '全角');
+  assert((await visibleText(page, '.list-block.changes')).includes('変更前からの変更はありません'), '全角');
 });
 
 await check('2. マチが袋口幅以上でエラー、画像出力も止まる', async () => {
@@ -162,7 +162,7 @@ await check('2. マチが袋口幅以上でエラー、画像出力も止まる'
   await page.screenshot({ path: `${OUT}ipad-export-blocked.png` });
   await page.tap('.modal-actions .btn');
   await page.tap('#btnBaseline');
-  assert((await page.textContent('.modal')).includes('比較元として保存できません'), '比較元の更新も止まる');
+  assert((await page.textContent('.modal')).includes('変更前として保存できません'), '比較元の更新も止まる');
   await page.tap('.modal-actions .btn');
   await setField(page, '#f-gusset', '10');
 });
@@ -376,7 +376,7 @@ await check('V1-5. 仕様変更の件数と一覧・文章の変更・元に戻�
   assert((await notes()).includes('注文メモの変更あり') && !(await notes()).includes('確認文'), await notes());
   // メモも戻すと「変更はありません」
   await setField(p, '#f-memo', '架空のサンプルです。普段使い用。A4のクリアファイルが入る大きさを希望。');
-  assert((await changesBox()).includes('比較元からの変更はありません'), await changesBox());
+  assert((await changesBox()).includes('変更前からの変更はありません'), await changesBox());
   assert((await tabText()) === '比較', await tabText());
   // 裏地の追加＋色指定 → 1行＝1件
   await tapRadio(p, 'lining', 'yes');
@@ -568,6 +568,68 @@ await check('共有をキャンセルしてもエラー表示にしない', asyn
   assert(!t.includes('共有できませんでした'), t);
   await ctx.close();
 });
+
+// ---------- 初めて使う人の導線（ユーザビリティ改善の回帰確認） ----------
+async function guideCheck(viewport) {
+  const p = await newPage(viewport);
+  const vp = p.viewportSize();
+  const onScreen = async (loc) => { const b = await loc.boundingBox(); return !!b && b.y >= 0 && b.y + b.height <= vp.height && b.x >= 0 && b.x + b.width <= vp.width; };
+  // 空の状態：未入力一覧から入力欄へ移動できる
+  if (await p.locator('#tab-diagram').isVisible()) await p.tap('#tab-diagram');
+  await p.locator('#pane-diagram [data-goto="height"]').tap();
+  await p.waitForTimeout(200);
+  assert(await p.evaluate(() => document.activeElement && document.activeElement.id === 'f-height'), '一覧から本体高さの欄へ');
+  assert(await onScreen(p.locator('#f-height')), '本体高さの欄が画面内');
+  // 入力後、スクロールせずに比較タブを押せる（狭い画面）
+  await loadSample(p);
+  if (!(await p.locator('#f-handleHeight').isVisible())) await p.tap('#tab-input');
+  await p.locator('#f-handleHeight').scrollIntoViewIfNeeded();
+  await p.fill('#f-handleHeight', '20');
+  assert(await onScreen(p.locator('#tab-compare')), '入力後も比較タブが画面内');
+  await p.tap('#tab-compare');
+  // 比較タブ：変更一覧が最初の画面に入る
+  await p.waitForTimeout(150);
+  const lb = await p.locator('#pane-compare .list-block.changes').boundingBox();
+  const sy = await p.evaluate(() => [scrollY, document.querySelector('.pane-view:not([hidden])') && document.getElementById('pane-compare').scrollTop]);
+  assert(lb && lb.y < vp.height, `変更一覧が最初の画面内 ${JSON.stringify(lb)} ${JSON.stringify(sy)}`);
+  assert(await p.locator('#pane-compare [data-act="export"]').isVisible(), '比較から確認画像へ進むボタン');
+  // 確認画像のプレビュー：上部の「閉じる」は下までスクロールしても画面内
+  await p.locator('#pane-compare [data-act="export"]').tap();
+  await p.waitForSelector('.preview-img');
+  await p.$eval('.modal', (m) => { m.scrollTop = m.scrollHeight; });
+  assert(await onScreen(p.locator('.modal [data-close]')), '閉じるが画面内');
+  // 拡大表示中は背景の「閉じる」等を操作対象から外す（閉じるボタンは1つだけ）
+  await p.locator('.preview-page[data-page="0"] button[data-zoom]').tap();
+  await p.waitForSelector('.zoom');
+  assert((await p.getByRole('button', { name: '閉じる', exact: true }).count()) === 1, '閉じるが1つ');
+  await p.locator('.zoom [data-z="close"]').tap();
+  assert((await p.getByRole('button', { name: '閉じる', exact: true }).count()) >= 1 && await p.isVisible('.modal'), 'プレビューに戻る');
+  await p.tap('.modal [data-close]');
+  // 不正な値：ダイアログから入力欄へ移動。他の入力は残る
+  if (!(await p.locator('#f-gusset').isVisible())) await p.tap('#tab-input');
+  await p.fill('#f-mouthWidth', '40');
+  await p.fill('#f-gusset', '40');
+  await p.locator('#f-gusset').blur();
+  await p.tap('#btnExport');
+  const t = await p.textContent('.modal');
+  assert(!t.includes('マチ：マチは'), `重複した表記 ${t}`);
+  await p.getByRole('button', { name: 'マチの欄へ移動' }).tap();
+  await p.waitForTimeout(200);
+  assert(await p.evaluate(() => document.activeElement && document.activeElement.id === 'f-gusset'), 'マチの欄へ移動');
+  assert((await p.inputValue('#f-handleHeight')) === '20', '他の入力は残る');
+  await p.fill('#f-gusset', '10');
+  // 変更前の更新：置き換わることを操作前に示す。承認とは書かない
+  await p.tap('#btnBaseline');
+  const u = await p.textContent('.modal');
+  assert(u.includes('版1との比較は表示できなくなります') && u.includes('自動で保存') && u.includes('承認を記録するものではありません'), u);
+  await p.tap('.modal-actions .btn:not(.btn-primary):not(.btn-danger)');
+  assert((await p.textContent('#btnBaseline')).trim() === '変更前を更新', 'ボタン名');
+  assert(p.errors.length === 0, p.errors.join(' / '));
+  await p.context().close();
+}
+await check('U. 初めて使う人の導線（iPad縦 768×1024）', () => guideCheck({ width: 768, height: 1024 }));
+await check('U. 初めて使う人の導線（iPad横 1024×768）', () => guideCheck({ width: 1024, height: 768 }));
+await check('U. 初めて使う人の導線（スマートフォン 390×844）', () => guideCheck({ width: 390, height: 844 }));
 
 // ---------- 保存拒否 ----------
 await check('11. 保存が拒否された環境でもアプリが停止しない', async () => {

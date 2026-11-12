@@ -40,9 +40,19 @@ function init() {
   buildChoice($('#liningSeg'), 'lining', TRI.map((t) => ({ value: t.key, label: t.label })));
   buildChoice($('#pocketSeg'), 'pocket', TRI.map((t) => ({ value: t.key, label: t.label })));
   bindEvents();
+  trackTopbarHeight();
   fillForm();
   if (!hasContent(state.doc) && isWide()) state.tab = 'diagram';
   render();
+}
+
+/** 上部の帯の高さを CSS 変数に（固定したタブを帯の直下に置くため） */
+function trackTopbarHeight() {
+  const bar = $('.topbar');
+  const set = () => document.documentElement.style.setProperty('--topbar-h', `${getComputedStyle(bar).position === 'sticky' ? bar.offsetHeight : 0}px`);
+  set();
+  if (window.ResizeObserver) new ResizeObserver(set).observe(bar);
+  window.addEventListener('resize', set);
 }
 
 function colorChoices() {
@@ -210,12 +220,12 @@ function render() {
   $('#orderMeta').innerHTML = `
     <span class="meta-item"><span class="meta-k">注文番号</span>${no ? esc(no) : '<span class="pending-text">未入力</span>'}</span>
     <span class="meta-item"><span class="meta-k">版</span>${doc.version}</span>
-    <span class="meta-item mode">${doc.baseline ? `比較元：版${doc.baselineVersion}` : '初回確認モード（比較元なし）'}</span>`;
+    <span class="meta-item mode">${doc.baseline ? `変更前：版${doc.baselineVersion}` : '初回確認（変更前の保存なし）'}</span>`;
   $('#versionReadout').textContent = doc.baseline
-    ? `版 ${doc.version}（比較元：版 ${doc.baselineVersion}）`
+    ? `版 ${doc.version}（変更前：版 ${doc.baselineVersion}）`
     : `版 ${doc.version}（初回確認）`;
   const bb = $('#btnBaseline');
-  bb.textContent = doc.baseline ? '比較元を更新' : '比較元として保存';
+  bb.textContent = doc.baseline ? '変更前を更新' : '変更前として保存';
 
   // 寸法欄
   for (const d of DIMS) {
@@ -263,8 +273,8 @@ function render() {
     if (isChanged) {
       const bf = baseFields.find((f) => f.key === key);
       note.innerHTML = key === 'memo' || key === 'questions'
-        ? '<span class="badge-change">変更</span>比較元から内容が変わっています'
-        : `<span class="badge-change">変更</span>比較元（版${doc.baselineVersion}）：${esc(bf.text)}`;
+        ? `<span class="badge-change">変更</span>版${doc.baselineVersion}から内容が変わっています`
+        : `<span class="badge-change">変更</span>版${doc.baselineVersion}の値：${esc(bf.text)}`;
     } else {
       note.innerHTML = '';
     }
@@ -284,7 +294,7 @@ function render() {
 
 function pendingListHtml(an) {
   if (an.errors.length) {
-    return `<div class="list-block errors"><h3><span aria-hidden="true">！</span>値を確認してください</h3><ul>${an.errors.map((e) => `<li>${esc(e.label)}：${esc(e.message)}</li>`).join('')}</ul></div>`;
+    return `<div class="list-block errors"><h3><span aria-hidden="true">！</span>値を確認してください</h3><ul class="goto-list">${an.errors.map((e) => `<li><button type="button" class="link-btn" data-goto="${e.key}">${esc(errorText(e))}<span class="goto-arrow">入力欄へ</span></button></li>`).join('')}</ul></div>`;
   }
   return '';
 }
@@ -292,24 +302,24 @@ function pendingListHtml(an) {
 function renderDiagram(an, changes) {
   const doc = state.doc;
   $('#diagramSub').textContent = doc.baseline
-    ? `版${doc.version}（編集中）。比較元（版${doc.baselineVersion}）からの変更はオレンジ色と「変更」で示します。`
+    ? `版${doc.version}（編集中）。変更前（版${doc.baselineVersion}）からの変更はオレンジ色と「変更」で示します。`
     : `版${doc.version}。初回確認モードです。`;
   $('#diagram').innerHTML = sceneToSvg(buildScene(doc.current, { baseline: doc.baseline, highlight: state.highlight, narrow: isNarrow() }), 'バッグの模式図（正面図・側面図・内側）');
   let html = pendingListHtml(an);
   html += `<div class="list-block pending"><h3><span aria-hidden="true">？</span>未入力・未定の項目</h3>${an.pending.length
-    ? `<ul>${an.pending.map((p) => `<li>${esc(p.text)}</li>`).join('')}</ul>` : '<p>なし</p>'}</div>`;
+    ? `<ul class="goto-list">${an.pending.map((p) => `<li><button type="button" class="link-btn" data-goto="${p.key}">${esc(p.text)}<span class="goto-arrow">入力欄へ</span></button></li>`).join('')}</ul>` : '<p>なし</p>'}</div>`;
   if (doc.baseline) html += changesHtml(changes);
   $('#diagramLists').innerHTML = html;
 }
 
-/** 比較元からの変更（仕様変更一覧＋文章の変更）。確認画像と同じ compareOrders の結果を使う */
+/** 変更前からの変更（仕様変更一覧＋文章の変更）。確認画像と同じ compareOrders の結果を使う */
 function changesHtml() {
   const doc = state.doc;
   const cmp = compareOrders(doc.baseline, doc.current);
   const n = cmp.specCount;
-  const head = `<h3><span class="sq" aria-hidden="true"></span>比較元（版${doc.baselineVersion}）からの変更　<span class="spec-count" data-spec-count="${n}">${n ? `仕様変更${n}件` : '仕様変更なし'}</span></h3>`;
+  const head = `<h3><span class="sq" aria-hidden="true"></span>変更前（版${doc.baselineVersion}）からの変更　<span class="spec-count" data-spec-count="${n}">${n ? `仕様変更${n}件` : '仕様変更なし'}</span></h3>`;
   if (!cmp.hasAny) {
-    return `<div class="list-block changes"><h3><span class="sq" aria-hidden="true"></span>比較元（版${doc.baselineVersion}）からの変更</h3><p class="no-change">比較元からの変更はありません</p></div>`;
+    return `<div class="list-block changes"><h3><span class="sq" aria-hidden="true"></span>変更前（版${doc.baselineVersion}）からの変更</h3><p class="no-change">変更前からの変更はありません</p></div>`;
   }
   const list = n
     ? `<ul class="spec-changes">${cmp.spec.map((c) => `<li><span class="badge-change">変更</span>${esc(c.text)}</li>`).join('')}</ul>`
@@ -328,14 +338,14 @@ function renderCompare(changes) {
     body.innerHTML = `
       <div class="empty-card">
         <h3>初回確認モードです</h3>
-        <p>まだ比較元がありません。現在の内容をお客様に確認したら「比較元として保存」を押すと、その時点の内容を固定し、以降の変更点を比べられます。</p>
-        <p class="hint">比較元として保存しても、お客様の承認を記録するものではありません。</p>
-        <button type="button" class="btn btn-primary" data-act="baseline">現在の内容を比較元として保存</button>
+        <p>今の内容をお客様に送ったら「変更前として保存」を押します。その時点の内容が固定され、このあと直した箇所が比べられるようになります。</p>
+        <p class="hint">入力内容はふだんから自動で端末に保存されています。このボタンは比べるための記録で、お客様の承認を記録するものではありません。</p>
+        <button type="button" class="btn btn-primary" data-act="baseline">今の内容を変更前として保存</button>
       </div>`;
     $('[data-act="baseline"]', body).addEventListener('click', onBaseline);
     return;
   }
-  $('#compareSub').textContent = `変更前＝比較元（版${doc.baselineVersion}）、変更後＝現在の内容（版${doc.version}・編集中）。同じ縮尺で表示しています。`;
+  $('#compareSub').textContent = `変更前＝保存した版${doc.baselineVersion}、変更後＝今の内容（版${doc.version}・編集中）。図は同じ縮尺です。`;
   const scene = buildCompareScene(doc.baseline, doc.current, {
     beforeTitle: `変更前（版${doc.baselineVersion}）`,
     afterTitle: `変更後（版${doc.version}）`,
@@ -343,11 +353,52 @@ function renderCompare(changes) {
     narrow: isNarrow(),
   });
   body.innerHTML = `
+    <div class="lists lists-top">${changesHtml(changes)}</div>
+    <div class="next-step">
+      <button type="button" class="btn btn-primary" data-act="export">この変更の確認画像を作成</button>
+    </div>
     <div class="diagram">${sceneToSvg(scene, '変更前と変更後の模式図')}</div>
-    <div class="lists">${changesHtml(changes)}
-      <p class="hint">比較元は、比較のために作家が保存した内容です。お客様の承認を示すものではありません。比較元は編集では変わりません。更新するときは「比較元を更新」を押してください。</p>
-    </div>`;
+    <p class="hint">「変更前」は編集しても変わりません。お客様の承認を示すものではありません。</p>`;
+  $('[data-act="export"]', body).addEventListener('click', onExport);
 }
+
+/** エラー文：「マチ：マチは…」のような重複を避ける */
+function errorText(e) {
+  return e.message.startsWith(e.label) ? e.message : `${e.label}：${e.message}`;
+}
+
+/** 誤りがあるときのダイアログのボタン：最初の誤りの入力欄へ移動 */
+function blockerActions() {
+  const err = analyze(state.doc.current).errors[0];
+  const acts = [{ label: '閉じる', value: null }];
+  if (err) acts.push({ label: `${err.label}の欄へ移動`, value: err.key, primary: true });
+  return acts;
+}
+
+const FIELD_FOCUS = {
+  orderNo: '#f-orderNo', memo: '#f-memo', questions: '#f-questions',
+  height: '#f-height', mouthWidth: '#f-mouthWidth', gusset: '#f-gusset', handleHeight: '#f-handleHeight',
+  bottomWidth: '#f-mouthWidth',
+  outerColor: 'input[name="outerColor"]', lining: 'input[name="lining"]', liningColor: 'input[name="liningColor"]', pocket: 'input[name="pocket"]',
+};
+
+/** 入力タブを開き、その項目の入力欄へ移動して選択する */
+function gotoField(key) {
+  if (!isWide()) state.tab = 'input';
+  render();
+  const el = $(FIELD_FOCUS[key] || '#f-height');
+  if (!el) return;
+  const field = el.closest('.field') || el;
+  field.scrollIntoView({ block: 'center' });
+  try { el.focus({ preventScroll: true }); } catch { /* 無視 */ }
+  field.classList.add('flash');
+  setTimeout(() => field.classList.remove('flash'), 1600);
+}
+
+document.addEventListener('click', (e) => {
+  const g = e.target.closest('[data-goto]');
+  if (g) gotoField(g.dataset.goto);
+});
 
 // ---------- モーダル ----------
 
@@ -359,15 +410,21 @@ function openModal({ title, html, actions = [{ label: '閉じる', value: null }
   root.innerHTML = `
     <div class="modal-backdrop"></div>
     <div class="modal${wide ? ' modal-wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <h2 id="modalTitle">${esc(title)}</h2>
+      <div class="modal-head">
+        <h2 id="modalTitle">${esc(title)}</h2>
+        <button type="button" class="btn modal-x" data-close aria-label="閉じる">閉じる</button>
+      </div>
       <div class="modal-body">${html}</div>
       <div class="modal-actions">${actions.map((a, i) => `<button type="button" class="btn${a.primary ? ' btn-primary' : ''}${a.danger ? ' btn-danger' : ''}" data-i="${i}">${esc(a.label)}</button>`).join('')}</div>
     </div>`;
   root.hidden = false;
   document.body.classList.add('modal-open');
+  setInert($('#app'), true);
+  hideToast();
   return new Promise((resolve) => {
     modalResolve = resolve;
     $$('.modal-actions button', root).forEach((b) => b.addEventListener('click', () => closeModal(actions[+b.dataset.i].value)));
+    $('[data-close]', root).addEventListener('click', () => closeModal(null));
     if (onMount) onMount($('.modal', root));
     const first = $('.modal-actions button', root);
     if (first) first.focus({ preventScroll: true });
@@ -382,6 +439,7 @@ function closeModal(value) {
   root.hidden = true;
   root.innerHTML = '';
   document.body.classList.remove('modal-open');
+  setInert($('#app'), false);
   const r = modalResolve;
   modalResolve = null;
   if (lastFocus && lastFocus.focus) try { lastFocus.focus({ preventScroll: true }); } catch { /* 無視 */ }
@@ -397,6 +455,17 @@ const confirmModal = (title, html, okLabel, danger = false) => openModal({
   actions: [{ label: 'キャンセル', value: false }, { label: okLabel, value: true, primary: !danger, danger }],
 });
 
+/** 背景を操作・読み上げの対象から外す（inert 非対応の環境では何もしない） */
+function setInert(el, on) {
+  if (!el) return;
+  if (on) el.setAttribute('inert', ''); else el.removeAttribute('inert');
+  el.setAttribute('aria-hidden', on ? 'true' : 'false');
+}
+function hideToast() {
+  const t = $('#toast');
+  if (t) t.classList.remove('show');
+}
+
 function toast(text) {
   let t = $('#toast');
   if (!t) {
@@ -409,7 +478,7 @@ function toast(text) {
   t.textContent = text;
   t.classList.add('show');
   clearTimeout(t._timer);
-  t._timer = setTimeout(() => t.classList.remove('show'), 3200);
+  t._timer = setTimeout(() => t.classList.remove('show'), 2600);
 }
 
 function replaceDoc(doc) {
@@ -424,7 +493,7 @@ function replaceDoc(doc) {
 
 async function onSample() {
   if (hasContent(state.doc)) {
-    const ok = await confirmModal('サンプルで試す', '<p>現在の内容（比較元を含む）を、架空のサンプルで置き換えます。</p><p class="hint">必要な場合は、先に「データ」からバックアップを書き出してください。</p>', 'サンプルに置き換える', true);
+    const ok = await confirmModal('サンプルで試す', '<p>現在の内容（変更前を含む）を、架空のサンプルで置き換えます。</p><p class="hint">必要な場合は、先に「データ」からバックアップを書き出してください。</p>', 'サンプルに置き換える', true);
     if (!ok) return;
   }
   replaceDoc(sampleDoc());
@@ -439,23 +508,27 @@ async function onBaseline() {
   const an = analyze(doc.current);
   if (an.errors.length) {
     await openModal({
-      title: '比較元として保存できません',
-      html: `<p>次の値を確認してください。</p><ul class="err-list">${an.errors.map((e) => `<li>${esc(e.label)}：${esc(e.message)}</li>`).join('')}</ul>`,
-    });
+      title: '変更前として保存できません',
+      html: `<p>次の値を直すと保存できます。</p><ul class="err-list">${an.errors.map((e) => `<li>${esc(errorText(e))}</li>`).join('')}</ul>`,
+      actions: blockerActions(),
+    }).then((v) => v && gotoField(v));
     return;
   }
-  const pend = an.pending.length ? `<p class="hint">未入力・未定の項目が ${an.pending.length} 件あります（そのまま固定されます）。</p>` : '';
+  const pend = an.pending.length ? `<p class="hint">未入力・未定の項目が ${an.pending.length} 件あります（そのまま記録されます）。</p>` : '';
   const html = doc.baseline
-    ? `<p>比較元（版${doc.baselineVersion}）を、現在の内容（版${doc.version}）で置き換えます。以降の編集は版${doc.version + 1}として比べます。</p>${pend}<p class="hint">お客様の承認を記録するものではありません。</p>`
-    : `<p>現在の内容（版${doc.version}）を比較元として固定します。以降の編集は版${doc.version + 1}として、変更点を比べられます。</p>${pend}<p class="hint">お客様の承認を記録するものではありません。</p>`;
-  const ok = await confirmModal(doc.baseline ? '比較元を更新' : '比較元として保存', html, doc.baseline ? '比較元を更新する' : '比較元として保存する');
+    ? `<p>いまの「変更前」（版${doc.baselineVersion}）を、今の内容（版${doc.version}）で置き換えます。</p>
+       <p><strong>版${doc.baselineVersion}との比較は表示できなくなります。</strong>このあとの編集は版${doc.version + 1}として、版${doc.version}と比べます。</p>${pend}
+       <p class="hint">入力内容はふだんから自動で保存されています。この操作は比べる基準を変えるもので、お客様の承認を記録するものではありません。</p>`
+    : `<p>今の内容（版${doc.version}）を「変更前」として記録します。このあと直した箇所が、版${doc.version + 1}として比べられるようになります。</p>${pend}
+       <p class="hint">入力内容はふだんから自動で保存されています。この操作は比べるための記録で、お客様の承認を記録するものではありません。</p>`;
+  const ok = await confirmModal(doc.baseline ? '変更前を今の内容に更新' : '変更前として保存', html, doc.baseline ? '置き換える' : '変更前として保存する');
   if (!ok) return;
   doc.baseline = cloneOrder(doc.current);
   doc.baselineVersion = doc.version;
   doc.version += 1;
   render();
   saveNow();
-  toast(`版${doc.baselineVersion}を比較元にしました。以降の編集は版${doc.version}です`);
+  toast(`版${doc.baselineVersion}を変更前として保存しました。ここからの編集は版${doc.version}です`);
 }
 
 let previewUrls = [];
@@ -465,12 +538,13 @@ async function onExport() {
   if (blockers.length) {
     await openModal({
       title: '確認画像を作成できません',
-      html: `<p>次の値に誤りがあるため、画像を作成できません。入力欄を直してから、もう一度お試しください。</p><ul class="err-list">${blockers.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>`,
-    });
+      html: `<p>次の値を直すと作成できます。</p><ul class="err-list">${blockers.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>`,
+      actions: blockerActions(),
+    }).then((v) => v && gotoField(v));
     return;
   }
   if (!doc.output) doc.output = defaultOutput();
-  const settings = doc.output; // 出力設定は保存する（比較元・注文内容には影響しない）
+  const settings = doc.output; // 出力設定は保存する（変更前・注文内容には影響しない）
   const fileName = (img) => imageFileName({ orderNo: doc.current.orderNo, version: doc.version, audience: settings.audience, index: img.index, total: img.total });
   let images = [];
   let seq = 0;
@@ -512,9 +586,9 @@ async function onExport() {
     previewUrls.forEach((u) => URL.revokeObjectURL(u));
     previewUrls = images.map((img) => URL.createObjectURL(img.blob));
     const multi = images.length > 1;
-    $('#pageInfo', modal).textContent = multi
-      ? `長いため ${images.length} 枚に分けました。1枚ずつ保存してください。`
-      : '1枚の画像です。';
+    const info = $('#pageInfo', modal);
+    info.hidden = !multi;
+    info.textContent = multi ? `長いため ${images.length} 枚に分けました。1枚ずつ保存してください。` : '';
     box.innerHTML = images.map((img, i) => `
       <figure class="preview-page" data-page="${i}">
         <figcaption>${multi ? `${img.index}/${img.total}枚目　${esc(img.name)}` : '確認画像'}<span class="file-name">${esc(fileName(img))}（${img.width}×${img.height}）</span></figcaption>
@@ -543,8 +617,8 @@ async function onExport() {
         </div>
       </div>
       ${pendingN ? `<p class="pending-note"><span aria-hidden="true">？</span>未入力・未定の項目が ${pendingN} 件あります。画像にもそのまま記載されます。</p>` : ''}
-      <p class="hint" id="pageInfo"></p>
-      <p class="hint">${FRAMED ? '画像を長押しして「"写真"に保存」を選ぶと保存できます。' : '保存できない場合は、画像を長押しして「"写真"に保存」または「画像を保存」を選んでください。'}</p>
+      <p class="hint" id="pageInfo" hidden></p>
+      <p class="hint">${FRAMED ? '画像を長押しして「"写真"に保存」を選ぶと保存できます。' : '「画像を保存」で保存できない場合は、画像を長押しして、出てくるメニューの「"写真"に保存」を選んでください。'}</p>
       <div class="preview-box"></div>`,
     actions: [{ label: '閉じる', value: null }],
     onMount: (modal) => {
@@ -571,7 +645,7 @@ async function onExport() {
             openZoom(urlOf(dl, 'dl'), img, dl, { saveHint: true });
           } else {
             downloadBlob(img.blob, fileName(img));
-            toast('ダウンロードを開始しました。保存先はブラウザの設定によります（iPadは「ファイル」→「ダウンロード」）');
+            toast('ダウンロードを開始しました。iPadでは「ファイル」アプリの「ダウンロード」に入ります。写真に入れる場合は画像を長押ししてください');
           }
         } else if (zm) {
           const img = imgOf(zm, 'zoom');
@@ -628,6 +702,8 @@ function openZoom(url, img, opener, opts = {}) {
       </div>
     </div>`;
   root.hidden = false;
+  setInert($('#modalRoot'), true);
+  hideToast();
   root.querySelector('.zoom-bar').addEventListener('click', (e) => {
     const b = e.target.closest('[data-z]');
     if (!b) return;
@@ -674,6 +750,7 @@ function closeZoom() {
   zoomState.open = false;
   root.hidden = true;
   root.innerHTML = '';
+  setInert($('#modalRoot'), false);
   const op = zoomState.opener;
   zoomState.opener = null;
   if (op && document.contains(op)) {
@@ -720,7 +797,7 @@ async function onData() {
   await openModal({
     title: 'データ（バックアップと復元）',
     html: `
-      <p>現在の内容・比較元・版番号をファイルに書き出し、あとで復元できます。</p>
+      <p>今の内容・変更前の内容・版番号をファイルに書き出し、あとで復元できます。</p>
       <p class="hint">ブラウザの保存は、設定や容量の都合で消えることがあります。区切りごとに書き出しておくと安心です。</p>
       <div class="data-actions">
         <button type="button" class="btn btn-primary" id="dExport"${FRAMED ? ' hidden' : ''}>バックアップを書き出す</button>
@@ -759,7 +836,7 @@ async function onData() {
       });
       $('#dNew', modal).addEventListener('click', async () => {
         closeModal(null);
-        const ok = await confirmModal('新しい注文を始める', '<p>現在の内容と比較元を消去し、空の状態から始めます。この操作は取り消せません。</p><p class="hint">必要な場合は、先にバックアップを書き出してください。</p>', '消去して始める', true);
+        const ok = await confirmModal('新しい注文を始める', '<p>今の内容と変更前の内容を消去し、空の状態から始めます。この操作は取り消せません。</p><p class="hint">必要な場合は、先にバックアップを書き出してください。</p>', '消去して始める', true);
         if (!ok) return;
         replaceDoc(emptyDoc());
         state.tab = 'input';
@@ -797,8 +874,8 @@ async function importText(text) {
   }
   const summary = `<ul class="plain">
     <li>注文番号：${esc(doc.current.orderNo || '未入力')}</li>
-    <li>版：${doc.version}${doc.baseline ? `（比較元：版${doc.baselineVersion}）` : '（比較元なし）'}</li></ul>`;
-  const ok = await confirmModal('バックアップから復元', `<p>次の内容で、現在の内容（比較元を含む）を置き換えます。</p>${summary}`, '置き換える', true);
+    <li>版：${doc.version}${doc.baseline ? `（変更前：版${doc.baselineVersion}）` : '（変更前なし）'}</li></ul>`;
+  const ok = await confirmModal('バックアップから復元', `<p>次の内容で、現在の内容（変更前を含む）を置き換えます。</p>${summary}`, '置き換える', true);
   if (!ok) return;
   replaceDoc(doc);
   toast('バックアップから復元しました');

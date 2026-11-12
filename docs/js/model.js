@@ -398,17 +398,17 @@ export function parseBackup(text) {
   const d = obj.data;
   if (!d || typeof d !== 'object') throw new Error('データ本体がありません');
   const current = validateOrder(d.current, '現在の内容');
-  const baseline = d.baseline === null || d.baseline === undefined ? null : validateOrder(d.baseline, '比較元');
+  const baseline = d.baseline === null || d.baseline === undefined ? null : validateOrder(d.baseline, '変更前の内容');
   const version = d.version;
   if (!Number.isInteger(version) || version < 1 || version > 9999) throw new Error('版番号が正しくありません');
   let baselineVersion = d.baseline_version === undefined ? null : d.baseline_version;
   if (baseline) {
     if (!Number.isInteger(baselineVersion) || baselineVersion < 1 || baselineVersion >= version) {
-      throw new Error('比較元の版番号が正しくありません');
+      throw new Error('変更前の版番号が正しくありません');
     }
-    if (analyze(baseline).errors.length) throw new Error('比較元の寸法に範囲外の値があります');
+    if (analyze(baseline).errors.length) throw new Error('変更前の寸法に範囲外の値があります');
   } else {
-    if (baselineVersion !== null) throw new Error('比較元がないのに比較元の版番号があります');
+    if (baselineVersion !== null) throw new Error('変更前の内容がないのに、変更前の版番号があります');
     baselineVersion = null;
   }
   return { current, baseline, version, baselineVersion, isSample: d.is_sample === true, output: parseOutput(d.output) };

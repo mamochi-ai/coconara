@@ -73,7 +73,7 @@ test('ケース4：比較元から変更がない（40 と 40.0 も同じ）', (
   assert.deepEqual(r.changes, []);
   const { pages } = layoutPages(docWith(() => {}), CUSTOMER, NOW, fakeCtx);
   const texts = pages.flatMap((p) => p.blocks.flatMap((b) => b.ops.filter((o) => o.t === 'text').map((o) => o.text)));
-  assert.ok(texts.includes('比較元からの変更はありません'));
+  assert.ok(texts.includes('変更前からの変更はありません'));
 });
 
 test('ケース5：比較元がない初回注文', () => {

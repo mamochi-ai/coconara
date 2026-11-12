@@ -319,3 +319,44 @@ ul.plain { padding-left: 1.2em; }
   padding: 8px;
 }
 .zoom-img { display: block; max-width: none !important; height: auto; margin: 0 auto; background: #fff; -webkit-touch-callout: default; }
+
+/* ---------- 初めて使う人向けの導線 ---------- */
+/* モーダル：見出しと「閉じる」を上部に固定（長いプレビューでも見失わない） */
+.modal { padding-top: 0; }
+.modal-head {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin: 0 -18px 8px; padding: 12px 18px 10px;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.modal-head h2 { margin: 0; }
+.modal-x { flex: none; min-width: 84px; }
+
+/* 未入力・誤りの一覧から入力欄へ */
+.goto-list { list-style: none; padding-left: 0 !important; display: grid; gap: 6px; }
+.link-btn {
+  display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 44px; padding: 6px 12px; text-align: left;
+  border: 1px solid var(--line); border-radius: 8px; background: #fff; color: inherit; font: inherit; cursor: pointer;
+  touch-action: manipulation;
+}
+.goto-arrow { flex: none; font-size: 13px; color: var(--hl); font-weight: 700; }
+.goto-arrow::after { content: " ›"; }
+.field.flash { animation: flash 1.6s ease-out; }
+@keyframes flash { 0%, 40% { background: var(--hl-bg); box-shadow: 0 0 0 3px var(--hl); } 100% { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .field.flash { animation: none; outline: 3px solid var(--hl); } }
+
+/* 比較タブ：変更一覧を先に、次の操作ボタン */
+.lists-top { margin: 0 0 10px; }
+.next-step { margin: 0 0 12px; }
+
+/* 狭い画面：タブを画面上部に固定し、入力後もすぐ図・比較へ移れる */
+@media not all and (min-width: 960px) and (orientation: landscape) {
+  .tabs {
+    position: sticky; top: var(--topbar-h, 0px); z-index: 15;
+    background: var(--bg); padding-bottom: 8px;
+  }
+}
+@media (max-width: 600px) {
+  .tabs { top: 0; }
+}
