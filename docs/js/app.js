@@ -20,6 +20,8 @@ const state = {
 
 const wideMQ = window.matchMedia('(min-width: 960px) and (orientation: landscape)');
 const isWide = () => wideMQ.matches;
+// 別ページの枠内で表示されているときは、ダウンロード・共有が使えないことが多い
+const FRAMED = (() => { try { return window.self !== window.top; } catch { return true; } })();
 // 表示幅が狭いときは図を縦積みにして文字を読みやすくする
 const isNarrow = () => window.innerWidth < 700;
 
@@ -464,7 +466,8 @@ async function onExport() {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     previewUrl = URL.createObjectURL(current.blob);
     box.innerHTML = `<img src="${previewUrl}" alt="確認画像のプレビュー" class="preview-img" id="previewImg">`;
-    $('#shareBtn', modal).hidden = !canShareFile(current.blob, fileName());
+    $('#shareBtn', modal).hidden = FRAMED || !canShareFile(current.blob, fileName());
+    $('#downloadBtn', modal).hidden = FRAMED;
   };
   const pendingN = analyze(doc.current).pending.length;
   await openModal({
@@ -480,7 +483,7 @@ async function onExport() {
         <button type="button" class="btn btn-primary" id="shareBtn" hidden>共有・保存…</button>
         <button type="button" class="btn" id="downloadBtn">画像をダウンロード</button>
       </div>
-      <p class="hint">保存できない場合は、下の画像を長押しして「"写真"に保存」または「画像を保存」を選んでください。</p>
+      <p class="hint">${FRAMED ? '下の画像を長押しして「"写真"に保存」を選ぶと保存できます。' : '保存できない場合は、下の画像を長押しして「"写真"に保存」または「画像を保存」を選んでください。'}</p>
       <div class="preview-box"></div>`,
     actions: [{ label: '閉じる', value: null }],
     onMount: (modal) => {
@@ -549,10 +552,10 @@ async function onData() {
       <p>現在の内容・比較元・版番号をファイルに書き出し、あとで復元できます。</p>
       <p class="hint">ブラウザの保存は、設定や容量の都合で消えることがあります。区切りごとに書き出しておくと安心です。</p>
       <div class="data-actions">
-        <button type="button" class="btn btn-primary" id="dExport">バックアップを書き出す</button>
+        <button type="button" class="btn btn-primary" id="dExport"${FRAMED ? ' hidden' : ''}>バックアップを書き出す</button>
         <button type="button" class="btn" id="dImport">バックアップから復元</button>
       </div>
-      <details class="data-more">
+      <details class="data-more"${FRAMED ? ' open' : ''}>
         <summary>ファイルが使えない場合（テキストで保存・復元）</summary>
         <p class="hint">下のテキストをコピーしてメモなどに保存できます。復元するときは、保存したテキストを貼り付けて「テキストから復元」を押します。</p>
         <textarea id="dText" rows="6" spellcheck="false" aria-label="バックアップのテキスト"></textarea>
