@@ -1,0 +1,12 @@
+{
+  "name": "katachi-awase",
+  "version": "0.1.0",
+  "private": true,
+  "description": "オーダーメイドバッグの寸法・仕様を図で確認する静的Webアプリ（試作）",
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "test": "node --test tests/unit/*.test.mjs",
+    "test:e2e": "node tests/e2e/run.mjs"
+  }
+}

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#FBF8F1">
+<title>かたち合わせ</title>
+<link rel="stylesheet" href="./css/app.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 12h24l-4 16H8z' fill='%23EEE6D3' stroke='%2333312E' stroke-width='2'/%3E%3Cpath d='M11 12V7q0-3 3-3h4q3 0 3 3v5' fill='none' stroke='%2333312E' stroke-width='2'/%3E%3C/svg%3E">
+</head>
+<body>
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-name">かたち合わせ</span>
+      <span class="brand-sub">バッグ仕様の確認</span>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn" id="btnSample">サンプルで試す</button>
+      <button type="button" class="btn" id="btnBaseline">比較元として保存</button>
+      <button type="button" class="btn btn-primary" id="btnExport">確認画像を作成</button>
+      <button type="button" class="btn" id="btnData">データ</button>
+    </div>
+  </header>
+
+  <div class="infobar">
+    <div class="order-meta" id="orderMeta" aria-live="polite"></div>
+    <div class="save-status" id="saveStatus" role="status" aria-live="polite"></div>
+  </div>
+  <div class="sample-banner" id="sampleBanner" hidden>架空のサンプルで試しています（実在の注文ではありません）</div>
+  <p class="scheme-note">仕様確認用の模式図です。型紙・裁断図ではありません。</p>
+
+  <div class="tabs" role="tablist" aria-label="表示の切り替え">
+    <button type="button" role="tab" class="tab tab-input" data-tab="input" id="tab-input" aria-controls="pane-input">入力</button>
+    <button type="button" role="tab" class="tab" data-tab="diagram" id="tab-diagram" aria-controls="pane-diagram">図</button>
+    <button type="button" role="tab" class="tab" data-tab="compare" id="tab-compare" aria-controls="pane-compare">比較</button>
+  </div>
+
+  <main class="layout">
+    <section class="pane pane-input" id="pane-input" aria-label="入力">
+      <form id="form" autocomplete="off" novalidate>
+        <fieldset class="card">
+          <legend>注文情報</legend>
+          <div class="field" data-field="orderNo">
+            <label for="f-orderNo">注文番号</label>
+            <input id="f-orderNo" name="orderNo" type="text" maxlength="60" enterkeyhint="next" autocapitalize="characters" spellcheck="false">
+            <div class="change-note" aria-live="polite"></div>
+          </div>
+          <div class="field" data-field="memo">
+            <label for="f-memo">注文メモ <span class="opt">任意</span></label>
+            <textarea id="f-memo" name="memo" rows="3" maxlength="1000"></textarea>
+            <div class="change-note"></div>
+          </div>
+          <div class="field">
+            <span class="label-like">版番号</span>
+            <p class="readout" id="versionReadout"></p>
+          </div>
+        </fieldset>
+
+        <fieldset class="card">
+          <legend>寸法 <span class="opt">完成状態・cm・小数第1位まで</span></legend>
+          <div class="mini-diagram" id="miniDiagram" aria-hidden="true"></div>
+          <div id="dimFields"></div>
+          <div class="field derived" data-field="bottomWidth">
+            <span class="label-like">底幅 <span class="opt">自動計算</span></span>
+            <p class="readout" id="bottomReadout"></p>
+            <p class="hint">袋口幅 − マチ で計算します（この形のバッグの場合）。直接は編集できません。</p>
+            <div class="change-note"></div>
+          </div>
+          <p class="hint small">入力範囲は試作上の目安で、製作できることを保証するものではありません。</p>
+        </fieldset>
+
+        <fieldset class="card">
+          <legend>仕様</legend>
+          <div class="field" data-field="outerColor">
+            <span class="label-like" id="lbl-outer">表地の色</span>
+            <div class="chips" role="radiogroup" aria-labelledby="lbl-outer" id="outerColorChips"></div>
+            <div class="change-note"></div>
+          </div>
+          <div class="field" data-field="lining">
+            <span class="label-like" id="lbl-lining">裏地</span>
+            <div class="seg" role="radiogroup" aria-labelledby="lbl-lining" id="liningSeg"></div>
+            <div class="change-note"></div>
+          </div>
+          <div class="field" data-field="liningColor" id="liningColorField">
+            <span class="label-like" id="lbl-liningColor">裏地の色</span>
+            <div class="chips" role="radiogroup" aria-labelledby="lbl-liningColor" id="liningColorChips"></div>
+            <div class="change-note"></div>
+          </div>
+          <div class="field" data-field="pocket">
+            <span class="label-like" id="lbl-pocket">内ポケット</span>
+            <div class="seg" role="radiogroup" aria-labelledby="lbl-pocket" id="pocketSeg"></div>
+            <p class="hint" id="pocketCondition" hidden>ありの場合：内側の片面中央に1個。ポケットの寸法はこの確認では指定しません。</p>
+            <div class="change-note"></div>
+          </div>
+          <p class="hint small">色の見本は目安です。「未定」は要確認として扱います。</p>
+        </fieldset>
+
+        <p class="backup-hint">ブラウザの保存は消えることがあります。区切りごとに「データ」からバックアップを書き出してください。</p>
+      </form>
+    </section>
+
+    <section class="pane pane-view" id="pane-diagram" aria-label="図">
+      <div class="view-head">
+        <h2>現在の内容</h2>
+        <p class="view-sub" id="diagramSub"></p>
+      </div>
+      <div class="diagram" id="diagram"></div>
+      <div class="lists" id="diagramLists"></div>
+    </section>
+
+    <section class="pane pane-view" id="pane-compare" aria-label="比較">
+      <div class="view-head">
+        <h2>変更前後の比較</h2>
+        <p class="view-sub" id="compareSub"></p>
+      </div>
+      <div id="compareBody"></div>
+    </section>
+  </main>
+</div>
+
+<div class="modal-root" id="modalRoot" hidden></div>
+<input type="file" id="fileInput" accept="application/json,.json,text/plain" hidden>
+
+<noscript><p class="noscript">このツールを使うには JavaScript を有効にしてください。</p></noscript>
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
