@@ -1,9 +1,9 @@
 import {
   DIMS, COLORS, TRI, colorOf, rangeText, fmt, emptyDoc, cloneOrder, analyze, diffOrders, changeText,
-  fieldValues, sampleDoc, summarizeChanges, defaultOutput, hasContent, serializeDoc, parseBackup,
+  fieldValues, sampleDoc, compareOrders, defaultOutput, hasContent, serializeDoc, parseBackup,
 } from './model.js';
 import { buildScene, buildCompareScene, sceneToSvg } from './diagram.js';
-import { renderPngs, exportBlockers } from './export.js';
+import { renderPngs, exportBlockers, imageFileName } from './export.js';
 import { loadDoc, saveDoc } from './storage.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -197,8 +197,12 @@ function render() {
     t.setAttribute('aria-selected', String(sel));
     t.classList.toggle('is-active', sel);
   }
+  // 件数は仕様変更一覧の行数（文章の変更は数えない）
+  const cmp = doc.baseline ? compareOrders(doc.baseline, doc.current) : null;
   const tabCompare = $('#tab-compare');
-  tabCompare.innerHTML = changes.length ? `比較 <span class="tab-badge">変更 ${changes.length}</span>` : '比較';
+  tabCompare.innerHTML = !cmp ? '比較'
+    : cmp.specCount ? `比較 <span class="tab-badge">仕様変更${cmp.specCount}件</span>`
+      : cmp.textNotes.length ? '比較 <span class="tab-badge tab-badge-text">文章の変更</span>' : '比較';
 
   // ヘッダー
   $('#sampleBanner').hidden = !doc.isSample;
@@ -298,13 +302,22 @@ function renderDiagram(an, changes) {
   $('#diagramLists').innerHTML = html;
 }
 
+/** 比較元からの変更（仕様変更一覧＋文章の変更）。確認画像と同じ compareOrders の結果を使う */
 function changesHtml() {
   const doc = state.doc;
-  // 画面では作家向けに、注文メモ・確認事項の変更も含めてまとめて表示する
-  const list = summarizeChanges(doc.baseline, doc.current, { memo: true, questions: true });
-  return `<div class="list-block changes"><h3><span class="sq" aria-hidden="true"></span>比較元（版${doc.baselineVersion}）からの変更点</h3>${list.length
-    ? `<ul>${list.map((c) => `<li><span class="badge-change">変更</span>${esc(c.text)}</li>`).join('')}</ul>`
-    : '<p>比較元からの変更はありません</p>'}</div>`;
+  const cmp = compareOrders(doc.baseline, doc.current);
+  const n = cmp.specCount;
+  const head = `<h3><span class="sq" aria-hidden="true"></span>比較元（版${doc.baselineVersion}）からの変更　<span class="spec-count" data-spec-count="${n}">${n ? `仕様変更${n}件` : '仕様変更なし'}</span></h3>`;
+  if (!cmp.hasAny) {
+    return `<div class="list-block changes"><h3><span class="sq" aria-hidden="true"></span>比較元（版${doc.baselineVersion}）からの変更</h3><p class="no-change">比較元からの変更はありません</p></div>`;
+  }
+  const list = n
+    ? `<ul class="spec-changes">${cmp.spec.map((c) => `<li><span class="badge-change">変更</span>${esc(c.text)}</li>`).join('')}</ul>`
+    : '';
+  const notes = cmp.textNotes.length
+    ? `<ul class="text-changes">${cmp.textNotes.map((t) => `<li><span class="badge-text">文章</span>${esc(t)}</li>`).join('')}</ul>`
+    : '';
+  return `<div class="list-block changes">${head}${list}${notes}</div>`;
 }
 
 function renderCompare(changes) {
@@ -374,7 +387,10 @@ function closeModal(value) {
   if (lastFocus && lastFocus.focus) try { lastFocus.focus({ preventScroll: true }); } catch { /* 無視 */ }
   if (r) r(value);
 }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(null); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (zoomState.open) closeZoom(); else closeModal(null);
+});
 
 const confirmModal = (title, html, okLabel, danger = false) => openModal({
   title, html,
@@ -455,11 +471,7 @@ async function onExport() {
   }
   if (!doc.output) doc.output = defaultOutput();
   const settings = doc.output; // 出力設定は保存する（比較元・注文内容には影響しない）
-  const fileName = (img) => {
-    const base = (doc.current.orderNo.trim() || 'order').replace(/[^\w.-]+/g, '_').slice(0, 40);
-    const kind = settings.audience === 'maker' ? 'detail' : 'customer';
-    return `katachi_${base}_v${doc.version}_${kind}${img.total > 1 ? `_${img.index}of${img.total}` : ''}.png`;
-  };
+  const fileName = (img) => imageFileName({ orderNo: doc.current.orderNo, version: doc.version, audience: settings.audience, index: img.index, total: img.total });
   let images = [];
   let seq = 0;
   const syncControls = (modal) => {
@@ -505,12 +517,13 @@ async function onExport() {
       : '1枚の画像です。';
     box.innerHTML = images.map((img, i) => `
       <figure class="preview-page" data-page="${i}">
-        ${multi ? `<figcaption>${img.index}/${img.total}　${esc(img.name)}</figcaption>` : ''}
+        <figcaption>${multi ? `${img.index}/${img.total}枚目　${esc(img.name)}` : '確認画像'}<span class="file-name">${esc(fileName(img))}（${img.width}×${img.height}）</span></figcaption>
         <div class="preview-actions">
-          <button type="button" class="btn btn-primary" data-share="${i}" ${FRAMED || !canShareFile(img.blob, fileName(img)) ? 'hidden' : ''}>共有・保存…</button>
-          <button type="button" class="btn" data-dl="${i}" ${FRAMED ? 'hidden' : ''}>${multi ? `${img.index}枚目をダウンロード` : '画像をダウンロード'}</button>
+          <button type="button" class="btn btn-primary" data-dl="${i}">画像を保存</button>
+          <button type="button" class="btn" data-zoom="${i}">拡大して確認</button>
+          <button type="button" class="btn" data-share="${i}" ${FRAMED || !canShareFile(img.blob, fileName(img)) ? 'hidden' : ''}>共有</button>
         </div>
-        <img src="${previewUrls[i]}" alt="確認画像のプレビュー ${img.index}/${img.total}" class="preview-img">
+        <img src="${previewUrls[i]}" alt="確認画像のプレビュー ${img.index}/${img.total}（タップで拡大）" class="preview-img" data-zoom="${i}">
       </figure>`).join('');
   };
   const pendingN = analyze(doc.current).pending.length;
@@ -547,9 +560,24 @@ async function onExport() {
       $('.preview-box', modal).addEventListener('click', async (e) => {
         const dl = e.target.closest('[data-dl]');
         const sh = e.target.closest('[data-share]');
+        const zm = e.target.closest('[data-zoom]');
+        const imgOf = (el, k) => images[+el.dataset[k]];
+        const urlOf = (el, k) => previewUrls[+el.dataset[k]];
         if (dl) {
-          const img = images[+dl.dataset.dl];
-          if (img) downloadBlob(img.blob, fileName(img));
+          const img = imgOf(dl, 'dl');
+          if (!img) return;
+          if (FRAMED) {
+            // この表示ではダウンロードできないため、拡大表示で長押し保存を案内する
+            openZoom(urlOf(dl, 'dl'), img, dl, { saveHint: true });
+          } else {
+            downloadBlob(img.blob, fileName(img));
+            toast('ダウンロードを開始しました。保存先はブラウザの設定によります（iPadは「ファイル」→「ダウンロード」）');
+          }
+        } else if (zm) {
+          const img = imgOf(zm, 'zoom');
+          // 画像のタップで開いた場合は、閉じたあと同じ画像の「拡大して確認」ボタンへ戻す
+          const opener = zm.tagName === 'IMG' ? $(`button[data-zoom="${zm.dataset.zoom}"]`, modal) : zm;
+          if (img) openZoom(urlOf(zm, 'zoom'), img, opener);
         } else if (sh) {
           const img = images[+sh.dataset.share];
           if (!img) return;
@@ -557,13 +585,103 @@ async function onExport() {
             await navigator.share({ files: [new File([img.blob], fileName(img), { type: 'image/png' })], title: '仕様の確認' });
           } catch (err) {
             if (err && err.name === 'AbortError') return;
-            toast('共有できませんでした。ダウンロードか、画像の長押しで保存してください');
+            toast('共有できませんでした。「画像を保存」か、拡大表示で画像を長押しして保存してください');
           }
         }
       });
     },
   });
 }
+
+// ---------- 確認画像の拡大表示 ----------
+// プレビューの表示倍率だけを変える。書き出した画像（blob）には一切触れない。
+
+const ZOOM_LEVELS = [1, 1.5, 2, 3, 4]; // 1 = 画面幅に合わせた表示
+const zoomState = { open: false, level: 0, opener: null, natural: 0 };
+
+function openZoom(url, img, opener, opts = {}) {
+  let root = $('#zoomRoot');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'zoomRoot';
+    document.body.appendChild(root);
+  }
+  zoomState.open = true;
+  zoomState.level = 0;
+  zoomState.opener = opener || null;
+  zoomState.natural = img.width;
+  const title = img.total > 1 ? `${img.index}/${img.total}枚目` : '確認画像';
+  root.innerHTML = `
+    <div class="zoom" role="dialog" aria-modal="true" aria-label="${esc(title)}の拡大表示">
+      <div class="zoom-bar">
+        <div class="zoom-ctrl">
+          <button type="button" class="btn zoom-btn" data-z="out" aria-label="縮小">－</button>
+          <output class="zoom-level" id="zoomLevel" aria-live="polite">100%</output>
+          <button type="button" class="btn zoom-btn" data-z="in" aria-label="拡大">＋</button>
+          <button type="button" class="btn" data-z="fit">表示を戻す</button>
+        </div>
+        <button type="button" class="btn btn-primary zoom-close" data-z="close">閉じる</button>
+      </div>
+      <p class="zoom-hint">${opts.saveHint || FRAMED ? '画像を長押しして「"写真"に保存」を選ぶと保存できます。' : '指で上下左右に動かして確認できます。画像の長押しでも保存できます。'}　100%＝画面の幅に合わせた大きさ</p>
+      <div class="zoom-scroll" id="zoomScroll" tabindex="0" aria-label="${esc(title)}（スクロールで移動）">
+        <img src="${url}" alt="${esc(title)}" class="zoom-img" id="zoomImg">
+      </div>
+    </div>`;
+  root.hidden = false;
+  root.querySelector('.zoom-bar').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-z]');
+    if (!b) return;
+    const z = b.dataset.z;
+    if (z === 'close') closeZoom();
+    else if (z === 'in') setZoom(zoomState.level + 1);
+    else if (z === 'out') setZoom(zoomState.level - 1);
+    else if (z === 'fit') setZoom(0, true);
+  });
+  setZoom(0, true);
+  $('[data-z="close"]', root).focus({ preventScroll: true });
+}
+
+function fitWidth() {
+  const sc = $('#zoomScroll');
+  return sc ? Math.max(100, sc.clientWidth - 16) : 300;
+}
+
+/** 表示倍率を変える。画面中央の位置を保つ */
+function setZoom(level, toTop = false) {
+  const sc = $('#zoomScroll');
+  const im = $('#zoomImg');
+  if (!sc || !im) return;
+  const lv = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, level));
+  const cx = sc.scrollWidth ? (sc.scrollLeft + sc.clientWidth / 2) / sc.scrollWidth : 0.5;
+  const cy = sc.scrollHeight ? (sc.scrollTop + sc.clientHeight / 2) / sc.scrollHeight : 0;
+  zoomState.level = lv;
+  im.style.width = `${Math.round(fitWidth() * ZOOM_LEVELS[lv])}px`;
+  $('#zoomLevel').textContent = `${Math.round(ZOOM_LEVELS[lv] * 100)}%`;
+  $('[data-z="out"]').disabled = lv === 0;
+  $('[data-z="in"]').disabled = lv === ZOOM_LEVELS.length - 1;
+  if (toTop) {
+    sc.scrollLeft = 0;
+    sc.scrollTop = 0;
+  } else {
+    sc.scrollLeft = cx * sc.scrollWidth - sc.clientWidth / 2;
+    sc.scrollTop = cy * sc.scrollHeight - sc.clientHeight / 2;
+  }
+}
+
+function closeZoom() {
+  const root = $('#zoomRoot');
+  if (!root || !zoomState.open) return;
+  zoomState.open = false;
+  root.hidden = true;
+  root.innerHTML = '';
+  const op = zoomState.opener;
+  zoomState.opener = null;
+  if (op && document.contains(op)) {
+    try { op.focus({ preventScroll: false }); } catch { /* 無視 */ }
+  }
+}
+
+window.addEventListener('resize', () => { if (zoomState.open) setZoom(zoomState.level); });
 
 function canShareFile(blob, name) {
   try {
@@ -687,6 +805,6 @@ async function importText(text) {
 }
 
 // テスト用に状態を参照できるようにする（画面には影響しない）
-window.__katachi = { state, render };
+window.__katachi = { state, render, zoomState };
 
 init();

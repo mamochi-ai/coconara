@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { emptyOrder, emptyDoc, sampleDoc, cloneOrder, parseBackup, serializeDoc, defaultOutput, fieldValues } from '../../docs/js/model.js';
 import { buildReport } from '../../docs/js/report.js';
-import { layoutPages, PAGE } from '../../docs/js/export.js';
+import { layoutPages, PAGE, imageFileName, safeFilePart } from '../../docs/js/export.js';
+import { compareOrders } from '../../docs/js/model.js';
 import { buildFigure, stateFn, sceneToSvg, PALETTE, textWidth } from '../../docs/js/diagram.js';
 
 const NOW = new Date('2026-11-12T10:00:00+09:00');
@@ -219,4 +220,36 @@ test('図：お客様用（正面図のみの比較）は底位置をそろえ�
   assert.equal(bottoms[0], bottoms[1]);
   assert.ok(!/側面図|内側図/.test(sceneToSvg(sc)));
   assert.match(sceneToSvg(sc), /正面図の変更前後は共通縮尺/);
+});
+
+test('画面と確認画像で同じ仕様変更一覧・件数を使う', () => {
+  const doc = sampleDoc();
+  doc.current.memo = '変更したメモ';
+  const cmp = compareOrders(doc.baseline, doc.current);
+  for (const settings of [CUSTOMER, { ...CUSTOMER, memo: true }, MAKER]) {
+    const r = buildReport(doc, settings, NOW);
+    assert.deepEqual(r.changes.map((c) => c.text), cmp.spec.map((c) => c.text));
+    assert.equal(r.specCount, cmp.specCount);
+    const { pages } = layoutPages(doc, settings, NOW, fakeCtx);
+    const texts = pages.flatMap((p) => p.blocks.flatMap((b) => b.ops.filter((o) => o.t === 'text').map((o) => o.text)));
+    assert.ok(texts.includes(`仕様変更（${cmp.specCount}件）`), settings.audience);
+    assert.ok(texts.includes('確認文の変更あり'));
+    // 注文メモの変更は、メモを載せる場合だけ記載
+    assert.equal(texts.includes('注文メモの変更あり'), !!(settings.memo || settings.audience === 'maker'));
+    assert.ok(!texts.some((t) => /注文メモ：内容を変更|確認したいこと：内容を変更/.test(t)), '文章の変更を仕様変更一覧に入れない');
+  }
+  // 文章だけの変更
+  const d2 = sampleDoc(); d2.current = cloneOrder(d2.baseline); d2.current.questions = 'q';
+  const { pages } = layoutPages(d2, CUSTOMER, NOW, fakeCtx);
+  const texts = pages.flatMap((p) => p.blocks.flatMap((b) => b.ops.filter((o) => o.t === 'text').map((o) => o.text)));
+  assert.ok(texts.includes('仕様変更なし') && texts.includes('確認文の変更あり'));
+});
+
+test('ファイル名：注文番号・版・用途・ページ番号。使えない文字は置き換える', () => {
+  assert.equal(imageFileName({ orderNo: 'SAMPLE-001', version: 2, audience: 'customer' }), 'katachi_SAMPLE-001_v2_customer.png');
+  assert.equal(imageFileName({ orderNo: 'SAMPLE-001', version: 3, audience: 'maker', index: 2, total: 3 }), 'katachi_SAMPLE-001_v3_maker_p2of3.png');
+  assert.equal(safeFilePart('a/b\\c:d*e?f"g<h>i|j k'), 'a_b_c_d_e_f_g_h_i_j_k');
+  assert.equal(safeFilePart(''), 'order');
+  assert.equal(safeFilePart('ご注文#１２'), 'ご注文_12');
+  assert.ok(!/[\\/:*?"<>|\s]/.test(imageFileName({ orderNo: '../x y', version: 1, audience: 'customer' })));
 });

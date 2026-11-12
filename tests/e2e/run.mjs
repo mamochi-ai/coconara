@@ -53,7 +53,7 @@ async function loadSample(page) {
   if (await modal.count()) await page.tap('.modal-actions .btn-danger');
   await page.waitForFunction(() => window.__katachi.state.doc.isSample);
 }
-const changesText = (page) => page.$$eval('.list-block.changes li', (els) => els
+const changesText = (page) => page.$$eval('.list-block.changes .spec-changes li', (els) => els
   .filter((e) => e.offsetParent !== null).map((e) => e.textContent.replace(/^変更/, '').trim()));
 const visibleText = (page, sel) => page.$$eval(sel, (els) => els.filter((e) => e.offsetParent !== null).map((e) => e.textContent).join('\n'));
 const setField = async (page, sel, value) => { await page.fill(sel, value); await page.locator(sel).blur(); };
@@ -103,8 +103,15 @@ await check('1. サンプルの底幅と変更点が正しい', async () => {
   const bottom = (await page.textContent('#bottomReadout')).trim();
   assert(bottom === '35 cm', `底幅 ${bottom}`);
   const ch = await changesText(page);
-  const expect = ['袋口幅：40 → 45cm', '底幅：30 → 35cm（袋口幅変更に伴う）', '内ポケット：なし → あり', 'お客様に確認したいこと：内容を変更'];
+  const expect = ['袋口幅：40 → 45cm', '底幅：30 → 35cm（袋口幅変更に伴う）', '内ポケット：なし → あり'];
   assert(JSON.stringify(ch) === JSON.stringify(expect), JSON.stringify(ch));
+  // 件数＝仕様変更一覧の行数。確認文の変更は件数に含めない
+  const tab = (await page.textContent('#tab-compare')).replace(/\s+/g, '');
+  assert(tab === '比較仕様変更3件', `タブ ${tab}`);
+  const head = await visibleText(page, '.list-block.changes .spec-count');
+  assert(head.includes('仕様変更3件'), head);
+  const notes = await visibleText(page, '.list-block.changes .text-changes');
+  assert(notes.includes('確認文の変更あり'), notes);
   assert(await page.isVisible('#sampleBanner'), 'サンプル表示');
   const svg = await page.innerHTML('#compareBody');
   assert(svg.includes('袋口幅 40cm<') && svg.includes('袋口幅 45cm（変更）'), '比較図の寸法');
@@ -345,6 +352,221 @@ await check('ケース2・5：袋口幅だけの変更／比較元なしの初�
   await savePngs('case5-initial-customer', init);
   assert(p2.errors.length === 0, p2.errors.join(' / '));
   await p2.context().close();
+});
+
+// ---------- 仕様変更と文章の変更 ----------
+await check('V1-5. 仕様変更の件数と一覧・文章の変更・元に戻す', async () => {
+  const p = await newPage(IPAD_L);
+  await loadSample(p);
+  const tabText = async () => (await p.textContent('#tab-compare')).replace(/\s+/g, '');
+  const rows = () => changesText(p);
+  const notes = () => visibleText(p, '.list-block.changes .text-changes');
+  const changesBox = () => visibleText(p, '.list-block.changes');
+  assert((await rows()).length === 3 && (await tabText()) === '比較仕様変更3件', 'サンプル3件');
+  // 仕様を元に戻すと、確認文の変更だけが残る
+  await setField(p, '#f-mouthWidth', '40');
+  await tapRadio(p, 'pocket', 'none');
+  assert((await rows()).length === 0, '仕様変更0行');
+  assert((await changesBox()).includes('仕様変更なし') && (await notes()).includes('確認文の変更あり'), await changesBox());
+  assert((await tabText()) === '比較文章の変更', await tabText());
+  // メモだけ変更
+  await setField(p, '#f-questions', '');
+  await setField(p, '#f-memo', '肩掛けできる長さを希望');
+  assert((await changesBox()).includes('仕様変更なし'), 'メモだけ');
+  assert((await notes()).includes('注文メモの変更あり') && !(await notes()).includes('確認文'), await notes());
+  // メモも戻すと「変更はありません」
+  await setField(p, '#f-memo', '架空のサンプルです。普段使い用。A4のクリアファイルが入る大きさを希望。');
+  assert((await changesBox()).includes('比較元からの変更はありません'), await changesBox());
+  assert((await tabText()) === '比較', await tabText());
+  // 裏地の追加＋色指定 → 1行＝1件
+  await tapRadio(p, 'lining', 'yes');
+  await tapRadio(p, 'liningColor', 'navy');
+  const r = await rows();
+  assert(JSON.stringify(r) === JSON.stringify(['裏地：なし → あり〈ネイビー〉']), JSON.stringify(r));
+  assert((await tabText()) === '比較仕様変更1件', await tabText());
+  // 確認画像（お客様用）の見出しも同じ件数
+  const img = await p.evaluate(async () => {
+    const { buildReport } = await import('./js/report.js');
+    const d = window.__katachi.state.doc;
+    const r1 = buildReport(d, { audience: 'customer', side: false, interior: false, memo: false });
+    const r2 = buildReport(d, { audience: 'maker' });
+    return [r1.specCount, r1.changes.map((c) => c.text), r2.specCount];
+  });
+  assert(img[0] === 1 && img[2] === 1 && img[1][0] === '裏地：なし → あり〈ネイビー〉', JSON.stringify(img));
+  await p.screenshot({ path: `${OUT}v-lining-count.png` });
+  assert(p.errors.length === 0, p.errors.join(' / '));
+  await p.context().close();
+});
+
+// ---------- 拡大表示・保存 ----------
+async function openPreview(p) {
+  await p.tap('#btnExport');
+  await p.waitForSelector('.preview-img');
+}
+const blobDigest = (p, i = 0) => p.$eval(`.preview-page[data-page="${i}"] .preview-img`, async (img) => {
+  const buf = new Uint8Array(await (await fetch(img.src)).arrayBuffer());
+  const h = await crypto.subtle.digest('SHA-256', buf);
+  return { size: buf.length, hash: Array.from(new Uint8Array(h)).map((b) => b.toString(16).padStart(2, '0')).join(''), w: img.naturalWidth, h: img.naturalHeight };
+});
+
+async function zoomCheck(viewport, label) {
+  const p = await newPage(viewport);
+  await loadSample(p);
+  if (await p.locator('#f-memo').isVisible() === false) await p.tap('#tab-input');
+  await p.fill('#f-questions', '内ポケットの大きさは、お任せでよろしいですか？');
+  await openPreview(p);
+  // 作家用に切り替え（出力設定が保持されるかも確認）
+  await p.locator('input[name="paud"][value="maker"]').locator('..').tap();
+  await p.waitForSelector('.preview-img');
+  const before = await blobDigest(p);
+  // プレビューを少しスクロールしてから拡大
+  await p.$eval('.modal', (m) => { m.scrollTop = 120; });
+  const modalScroll = await p.$eval('.modal', (m) => m.scrollTop);
+  const opener = p.locator('.preview-page[data-page="0"] button[data-zoom]');
+  await opener.tap();
+  await p.waitForSelector('.zoom');
+  const vp = p.viewportSize();
+  const inView = async (sel) => {
+    const b = await p.locator(sel).boundingBox();
+    return b && b.x >= 0 && b.y >= 0 && b.x + b.width <= vp.width + 0.5 && b.y + b.height <= vp.height + 0.5 && b.height >= 40;
+  };
+  assert((await p.textContent('#zoomLevel')) === '100%', '最初は画面幅に合わせる');
+  const fit = await p.evaluate(() => ({ img: document.getElementById('zoomImg').getBoundingClientRect().width, box: document.getElementById('zoomScroll').clientWidth }));
+  assert(fit.img <= fit.box && fit.img > fit.box - 40, `幅に合わせる ${JSON.stringify(fit)}`);
+  for (let i = 0; i < 4; i++) await p.tap('[data-z="in"]');
+  assert((await p.textContent('#zoomLevel')) === '400%', '拡大');
+  assert(await p.locator('[data-z="in"]').isDisabled(), '最大で＋は無効');
+  for (const sel of ['[data-z="close"]', '[data-z="in"]', '[data-z="out"]', '[data-z="fit"]']) assert(await inView(sel), `${sel} が画面内`);
+  // 四隅まで移動できる
+  const corners = await p.evaluate(() => {
+    const sc = document.getElementById('zoomScroll');
+    const im = document.getElementById('zoomImg');
+    const res = [];
+    for (const [x, y] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+      sc.scrollLeft = x ? sc.scrollWidth : 0;
+      sc.scrollTop = y ? sc.scrollHeight : 0;
+      const a = im.getBoundingClientRect();
+      const b = sc.getBoundingClientRect();
+      // その隅が表示領域の内側に入っているか
+      const cx = x ? a.right : a.left;
+      const cy = y ? a.bottom : a.top;
+      res.push(cx >= b.left - 0.5 && cx <= b.right + 0.5 && cy >= b.top - 0.5 && cy <= b.bottom + 0.5);
+    }
+    return { res, overflow: sc.scrollWidth > sc.clientWidth && sc.scrollHeight > sc.clientHeight };
+  });
+  assert(corners.overflow && corners.res.every(Boolean), `四隅 ${JSON.stringify(corners)}`);
+  await p.screenshot({ path: `${OUT}${label}-zoom-400.png` });
+  await p.tap('[data-z="out"]');
+  assert((await p.textContent('#zoomLevel')) === '300%', '縮小');
+  await p.tap('[data-z="fit"]');
+  assert((await p.textContent('#zoomLevel')) === '100%', '表示を戻す');
+  await p.screenshot({ path: `${OUT}${label}-zoom-fit.png` });
+  // ブラウザ標準のピンチズームを禁止していない
+  const meta = await p.getAttribute('meta[name="viewport"]', 'content');
+  assert(!/user-scalable\s*=\s*no|maximum-scale\s*=\s*1(\D|$)/.test(meta), meta);
+  await p.tap('[data-z="close"]');
+  assert(await p.locator('.zoom').count() === 0, '閉じた');
+  assert(await p.isVisible('.modal'), 'プレビューに戻る');
+  const focusOk = await p.evaluate(() => document.activeElement && document.activeElement.matches('.preview-page[data-page="0"] button[data-zoom]'));
+  assert(focusOk, 'フォーカスが起点のボタンへ戻る');
+  const modalScroll2 = await p.$eval('.modal', (m) => m.scrollTop);
+  assert(Math.abs(modalScroll2 - modalScroll) < 60, `プレビューの位置 ${modalScroll} → ${modalScroll2}`);
+  // 画像のタップでも開く。Escape で拡大表示だけ閉じる
+  await p.locator('.preview-page[data-page="0"] .preview-img').tap();
+  await p.waitForSelector('.zoom');
+  await p.keyboard.press('Escape');
+  assert(await p.locator('.zoom').count() === 0 && await p.isVisible('.modal'), 'Escapeは拡大表示だけ閉じる');
+  // 書き出し画像は変わらない
+  const after = await blobDigest(p);
+  assert(JSON.stringify(before) === JSON.stringify(after), `画像が変わった ${JSON.stringify([before, after])}`);
+  // 共有は非対応なら非表示、保存ボタンは表示
+  const shareShown = await p.locator('.preview-page[data-page="0"] [data-share]').isVisible();
+  const canShare = await p.evaluate(() => !!navigator.canShare);
+  assert(canShare || !shareShown, '共有非対応なら非表示');
+  assert(await p.locator('.preview-page[data-page="0"] [data-dl]').isVisible(), '画像を保存');
+  const small = await p.$$eval('.modal button:not([hidden])', (els) => els.filter((e) => e.offsetParent).map((e) => ({ t: e.textContent.trim(), h: e.getBoundingClientRect().height, r: e.getBoundingClientRect().right })));
+  const tooSmall = small.filter((b) => b.h < 40);
+  assert(tooSmall.length === 0, `小さいボタン ${JSON.stringify(tooSmall)}`);
+  const outside = small.filter((b) => b.r > vp.width + 1);
+  assert(outside.length === 0, `画面外のボタン ${JSON.stringify(outside)}`);
+  await p.tap('.modal-actions .btn');
+  // 入力内容・出力設定が保持されている
+  assert((await p.evaluate(() => window.__katachi.state.doc.output.audience)) === 'maker', '出力設定');
+  assert((await p.evaluate(() => window.__katachi.state.doc.current.questions)) === '内ポケットの大きさは、お任せでよろしいですか？', '入力内容');
+  assert(p.errors.length === 0, p.errors.join(' / '));
+  await p.context().close();
+}
+await check('V6-8. 拡大表示（iPad横）：四隅・倍率・閉じる・フォーカス・画像不変', () => zoomCheck(IPAD_L, 'ipad-landscape'));
+await check('V6-8・12. 拡大表示（iPad縦）', () => zoomCheck(IPAD_P, 'ipad-portrait'));
+await check('V6-8・12. 拡大表示（スマートフォン幅）', () => zoomCheck(PHONE, 'phone'));
+
+await check('V9-11. PNGを実際にダウンロードして画像として開ける（共有非対応環境）', async () => {
+  const ctx = await browser.newContext({ viewport: IPAD_L, hasTouch: true, acceptDownloads: true });
+  await ctx.addInitScript(() => { try { delete Navigator.prototype.canShare; delete Navigator.prototype.share; } catch { /* 無視 */ } navigator.canShare = undefined; navigator.share = undefined; });
+  const p = await ctx.newPage();
+  p.errors = [];
+  p.on('pageerror', (e) => p.errors.push(e.message));
+  await p.goto(URL_);
+  await loadSample(p);
+  await openPreview(p);
+  assert(!(await p.locator('[data-share]').first().isVisible()), '共有ボタンは非表示');
+  const digest = await blobDigest(p);
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.locator('.preview-page[data-page="0"] [data-dl]').tap()]);
+  const name = dl.suggestedFilename();
+  assert(name === 'katachi_SAMPLE-001_v2_customer.png', name);
+  const path = `${OUT}downloaded-${name}`;
+  await dl.saveAs(path);
+  const buf = await readFile(path);
+  assert(buf.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), 'PNGの署名');
+  const w = buf.readUInt32BE(16);
+  const h = buf.readUInt32BE(20);
+  assert(w === 2000 && w === digest.w && h === digest.h, `寸法 ${w}×${h}`);
+  assert(buf.length === digest.size, 'プレビューと同じ画像');
+  // 画像として開ける（ブラウザで読み込んで描画）
+  const decoded = await p.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    return [img.naturalWidth, img.naturalHeight];
+  }, buf.toString('base64'));
+  assert(decoded[0] === w && decoded[1] === h, 'デコード');
+  const toastText = await p.textContent('#toast');
+  assert(toastText.includes('ダウンロードを開始しました') && !toastText.includes('写真に保存しました'), toastText);
+  // 複数枚：各画像を個別に保存でき、ファイル名にページ番号
+  await p.tap('.modal-actions .btn');
+  await p.fill('#f-questions', ('内ポケットの大きさは、お任せでよろしいですか？\n'.repeat(40)).slice(0, 1000));
+  await p.fill('#f-memo', 'ご希望：肩掛けできる長さの持ち手。'.repeat(60).slice(0, 1000));
+  await openPreview(p);
+  await p.locator('#opt-memo').locator('..').tap();
+  await p.waitForSelector('.preview-img');
+  const n = await p.locator('.preview-page').count();
+  assert(n >= 2, `${n}枚`);
+  for (let i = 0; i < n; i++) {
+    const [d] = await Promise.all([p.waitForEvent('download'), p.locator(`.preview-page[data-page="${i}"] [data-dl]`).tap()]);
+    assert(d.suggestedFilename() === `katachi_SAMPLE-001_v2_customer_p${i + 1}of${n}.png`, d.suggestedFilename());
+    await d.saveAs(`${OUT}downloaded-${d.suggestedFilename()}`);
+  }
+  assert(p.errors.length === 0, p.errors.join(' / '));
+  await ctx.close();
+});
+
+await check('共有をキャンセルしてもエラー表示にしない', async () => {
+  const ctx = await browser.newContext({ viewport: IPAD_L, hasTouch: true });
+  await ctx.addInitScript(() => {
+    navigator.canShare = () => true;
+    navigator.share = () => Promise.reject(new DOMException('cancel', 'AbortError'));
+  });
+  const p = await ctx.newPage();
+  await p.goto(URL_);
+  await loadSample(p);
+  await openPreview(p);
+  const sh = p.locator('.preview-page[data-page="0"] [data-share]');
+  assert(await sh.isVisible(), '対応環境では共有を表示');
+  await sh.tap();
+  await p.waitForTimeout(300);
+  const t = await p.$eval('#toast', (e) => e.classList.contains('show') ? e.textContent : '').catch(() => '');
+  assert(!t.includes('共有できませんでした'), t);
+  await ctx.close();
 });
 
 // ---------- 保存拒否 ----------

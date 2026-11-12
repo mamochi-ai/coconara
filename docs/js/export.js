@@ -67,6 +67,19 @@ function blocksFor(ctx, report, doc) {
   const m = report.meta;
   const maker = report.audience === 'maker';
 
+  /** 仕様変更（件数＝行数）と文章の変更。画面の比較タブと同じデータ */
+  const changeBlocks = (group) => {
+    const n = report.specCount;
+    heading(group, n ? `仕様変更（${n}件）` : '変更点', PALETTE.change);
+    if (n === 0 && report.textNotes.length === 0) {
+      para(group, '比較元からの変更はありません', { size: 18 });
+      return;
+    }
+    if (n === 0) para(group, '仕様変更なし', { size: 18, weight: 700 });
+    for (const c of report.changes) para(group, c.text, { size: 19, weight: 700, color: PALETTE.change, bullet: 'change' });
+    for (const t of report.textNotes) para(group, t, { size: 16, color: PALETTE.muted, bullet: 'dot' });
+  };
+
   // 1. 見出しと注文情報（1〜2行に短くまとめる）
   add('main', 46, [textOp(PAGE.pad, 22, report.title, 28, 700)]);
   const metaParts = [
@@ -92,18 +105,12 @@ function blocksFor(ctx, report, doc) {
   if (maker) {
     // 作家用：正面・側面・内側の図 → 全項目の表
     figure('main', buildFigure(cols, { front: true, side: true, interior: true, footnote: false }));
+    if (report.compare) changeBlocks('main');
     tableBlocks(ctx, report, add, textOp);
   } else {
     // お客様用：正面図 → 変更点 → 必要な追加図 → 仕様 → 未入力・未定 → 確認したいこと
     figure('main', buildFigure(cols, { front: true, side: false, interior: false, footnote: false }));
-    if (report.compare) {
-      heading('main', '変更点', PALETTE.change);
-      if (report.changes.length === 0) {
-        para('main', '比較元からの変更はありません', { size: 18 });
-      } else {
-        for (const c of report.changes) para('main', c.text, { size: 19, weight: 700, color: PALETTE.change, bullet: 'change' });
-      }
-    }
+    if (report.compare) changeBlocks('main');
     // 追加の図（マチ・裏地・ポケットの変更時、または出力設定で追加したとき）
     if (report.parts.side) {
       add('main', 18, [], { keep: true });
@@ -274,6 +281,23 @@ function toBlob(canvas) {
       } catch (e) { reject(e); }
     }
   });
+}
+
+/** ファイル名に使える文字列にする（記号・空白・制御文字を _ に。日本語はそのまま） */
+export function safeFilePart(text, fallback = 'order') {
+  const t = String(text || '').normalize('NFKC')
+    .replace(/[\\/:*?"<>|\u0000-\u001f\u007f#%&{}$!'@`=+]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^[_.]+|[_.]+$/g, '');
+  return (Array.from(t).slice(0, 40).join('') || fallback);
+}
+
+/** 確認画像のファイル名：注文番号・版・用途・ページ番号が分かる名前 */
+export function imageFileName({ orderNo, version, audience, index = 1, total = 1 }) {
+  const kind = audience === 'maker' ? 'maker' : 'customer';
+  const page = total > 1 ? `_p${index}of${total}` : '';
+  return `katachi_${safeFilePart(orderNo)}_v${version}_${kind}${page}.png`;
 }
 
 /** 出力前のチェック。不正な値があれば理由の一覧を返す。 */

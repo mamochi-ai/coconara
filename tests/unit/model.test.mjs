@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parseDim, fmt, evaluateDims, analyze, diffOrders, sampleDoc, emptyOrder, emptyDoc, summarizeChanges, fieldValues,
+  parseDim, fmt, evaluateDims, analyze, diffOrders, sampleDoc, emptyOrder, emptyDoc, summarizeChanges, compareOrders, fieldValues,
   cloneOrder, serializeDoc, parseBackup, hasContent,
 } from '../../docs/js/model.js';
 import { buildScene, buildCompareScene, sceneToSvg, geometry } from '../../docs/js/diagram.js';
@@ -100,8 +100,11 @@ test('サンプル：底幅と変更点', () => {
     '底幅：30 → 35cm（袋口幅変更に伴う）',
     '内ポケット：なし → あり',
   ]);
-  // 確認事項の変更はお客様用の一覧には出さない（作家向けの画面では出す）
-  assert.ok(summarizeChanges(s.baseline, s.current, { questions: true }).some((c) => c.text === 'お客様に確認したいこと：内容を変更'));
+  // 確認文の変更は仕様変更に数えず、文章の変更として別に示す
+  const cmp = compareOrders(s.baseline, s.current);
+  assert.equal(cmp.specCount, 3);
+  assert.equal(cmp.spec.length, cmp.specCount);
+  assert.deepEqual(cmp.textNotes, ['確認文の変更あり']);
   assert.equal(s.baselineVersion, 1);
   assert.equal(s.version, 2);
   assert.equal(s.isSample, true);
@@ -269,4 +272,33 @@ test('図：狭い画面用の縦積みでも同じ縮尺・範囲内', () => {
   assert.match(sceneToSvg(sc), /袋口幅 45cm（変更）/);
   const one = buildScene(order({ height: '80', mouthWidth: '5', gusset: '4.9', handleHeight: '50' }), { narrow: true });
   for (const it of one.items) if (it.t === 'text') assert.ok(it.x >= 0 && it.x <= 420 && it.y <= one.height);
+});
+
+test('仕様変更と文章の変更を分ける：件数＝仕様変更一覧の行数', () => {
+  const base = order({ height: '30', mouthWidth: '40', gusset: '10', handleHeight: '15' }, { orderNo: 'A', outerColor: 'kinari', lining: 'none', pocket: 'none' });
+  const edit = (f) => { const o = cloneOrder(base); f(o); return compareOrders(base, o); };
+  // 確認文だけ
+  let c = edit((o) => { o.questions = '内ポケットの大きさは、お任せでよろしいですか？'; });
+  assert.equal(c.specCount, 0);
+  assert.deepEqual(c.textNotes, ['確認文の変更あり']);
+  assert.equal(c.hasAny, true);
+  // 注文メモだけ
+  c = edit((o) => { o.memo = 'A4が入る大きさを希望'; });
+  assert.equal(c.specCount, 0);
+  assert.deepEqual(c.textNotes, ['注文メモの変更あり']);
+  // 変更なし（40.0 や前後の空白は同じ扱い）
+  c = edit((o) => { o.dims.mouthWidth = '40.0'; o.memo = '  '; });
+  assert.equal(c.hasAny, false);
+  assert.equal(c.specCount, 0);
+  // 裏地の追加＋色指定は1行＝1件
+  c = edit((o) => { o.lining = 'yes'; o.liningColor = 'navy'; });
+  assert.deepEqual(c.spec.map((x) => x.text), ['裏地：なし → あり〈ネイビー〉']);
+  assert.equal(c.specCount, 1);
+  // 袋口幅＋底幅（自動計算）＋ポケット＋確認文 → 仕様変更3件
+  c = edit((o) => { o.dims.mouthWidth = '45'; o.pocket = 'yes'; o.questions = 'q'; o.memo = 'm'; });
+  assert.equal(c.specCount, 3);
+  assert.deepEqual(c.textNotes, ['確認文の変更あり', '注文メモの変更あり']);
+  // 元に戻すと消える
+  c = edit((o) => { o.dims.mouthWidth = '45'; o.dims.mouthWidth = '40'; });
+  assert.equal(c.hasAny, false);
 });

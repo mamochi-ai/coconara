@@ -250,31 +250,59 @@ export function changeText(c) {
   return `${c.label}：${body}${c.note || ''}`;
 }
 
+/** 文章の項目（仕様変更には数えない） */
+export const TEXT_KEYS = ['orderNo', 'memo', 'questions'];
+
 /**
- * 変更点を、同じ意味の項目をまとめた短い一覧にする（お客様用・画面表示用）。
+ * 仕様変更の一覧（バッグの仕様だけ）。画面の件数・一覧と確認画像はすべてこの結果を使う。
+ * 件数＝この一覧の行数。自動計算の底幅も理由を添えて1行。
  * 裏地の有無が変わった場合は色も含めて1行にまとめ、裏地ありのまま色だけ変えた場合は
- * 「裏地の色：A → B」と示す。opts.memo: 注文メモの変更を含める。確認事項の変更は含めない。
+ * 「裏地の色：A → B」の1行にする。
  */
-export function summarizeChanges(before, after, opts = {}) {
+export function summarizeChanges(before, after) {
   const diff = diffOrders(before, after);
   const keys = new Set(diff.map((c) => c.key));
   const out = [];
   for (const c of diff) {
+    if (TEXT_KEYS.includes(c.key)) continue;
     if (c.key === 'lining') {
       out.push({ keys: ['lining', 'liningColor'], text: `裏地：${liningSummary(before)} → ${liningSummary(after)}` });
     } else if (c.key === 'liningColor') {
       if (!keys.has('lining')) out.push({ keys: ['liningColor'], text: changeText(c) });
     } else if (c.key === 'outerColor') {
       out.push({ keys: ['outerColor'], text: `表地：${c.from.text} → ${c.to.text}` });
-    } else if (c.key === 'questions') {
-      if (opts.questions) out.push({ keys: ['questions'], text: changeText(c) });
-    } else if (c.key === 'memo') {
-      if (opts.memo) out.push({ keys: ['memo'], text: changeText(c) });
     } else {
       out.push({ keys: [c.key], text: changeText(c) });
     }
   }
   return out;
+}
+
+/**
+ * 比較の結果を「仕様変更」と「文章の変更」に分けて返す。
+ * spec: 仕様変更一覧（件数＝行数）、text: 文章の変更（注文番号・注文メモ・確認文）
+ */
+export function compareOrders(before, after) {
+  const diff = diffOrders(before, after);
+  const keys = new Set(diff.map((c) => c.key));
+  const spec = summarizeChanges(before, after);
+  const text = {
+    orderNo: keys.has('orderNo'),
+    memo: keys.has('memo'),
+    questions: keys.has('questions'),
+  };
+  const textNotes = [];
+  if (text.questions) textNotes.push('確認文の変更あり');
+  if (text.memo) textNotes.push('注文メモの変更あり');
+  if (text.orderNo) textNotes.push('注文番号の変更あり');
+  return {
+    spec,
+    specCount: spec.length,
+    text,
+    textNotes,
+    hasAny: spec.length > 0 || textNotes.length > 0,
+    changedKeys: [...keys],
+  };
 }
 
 // ---------- サンプル ----------

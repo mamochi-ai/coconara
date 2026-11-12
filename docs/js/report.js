@@ -1,7 +1,7 @@
 // 確認画像の内容（お客様用・作家用）を、共通のデータから組み立てる。
 // 描画はしない。数値・変更判定はすべて model.js の同じ関数から得るため、両モードで食い違わない。
 import {
-  analyze, diffOrders, summarizeChanges, fieldValues, liningSummary, pocketSummary, defaultOutput,
+  analyze, compareOrders, fieldValues, liningSummary, pocketSummary, defaultOutput,
 } from './model.js';
 
 const CHANGE_SIDE = ['gusset'];
@@ -27,8 +27,8 @@ export function buildReport(doc, settings = defaultOutput(), now = new Date()) {
   const cur = doc.current;
   const base = doc.baseline || null;
   const compare = !!base;
-  const diff = compare ? diffOrders(base, cur) : [];
-  const changedKeys = new Set(diff.map((c) => c.key));
+  const cmp = compare ? compareOrders(base, cur) : null;
+  const changedKeys = new Set(cmp ? cmp.changedKeys : []);
   const an = analyze(cur);
 
   const sideAuto = compare && CHANGE_SIDE.some((k) => changedKeys.has(k));
@@ -41,8 +41,11 @@ export function buildReport(doc, settings = defaultOutput(), now = new Date()) {
   const memo = String(cur.memo || '').trim();
   const questions = String(cur.questions || '').trim();
 
-  // 変更点（お客様用はまとめた一覧。作家用は比較表に全項目を載せるため一覧は作らない）
-  const changes = compare ? summarizeChanges(base, cur, { memo: includeMemo }) : null;
+  // 仕様変更一覧（画面と同じデータ。件数＝行数）と、文章の変更の注記
+  const changes = cmp ? cmp.spec : null;
+  const textNotes = cmp
+    ? cmp.textNotes.filter((t) => t !== '注文メモの変更あり' || includeMemo)
+    : [];
 
   // お客様用：図に出ない仕様を短く記載（側面図・内側図を載せない場合）
   const specShort = [];
@@ -102,6 +105,8 @@ export function buildReport(doc, settings = defaultOutput(), now = new Date()) {
     meta,
     parts,
     changes,
+    specCount: changes ? changes.length : 0,
+    textNotes,
     changedKeys: [...changedKeys],
     specShort,
     table,
