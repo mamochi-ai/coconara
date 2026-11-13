@@ -163,7 +163,7 @@ await check('4・5. タップで手前に出る（位置・大きさ・影）、
   const before = await rects(p);
   const idx = Number(c0.split(' / ')[0]) - 1;
   const ids = await p.$$eval('.item', (els) => els.map((e) => e.dataset.id));
-  const target = idx + 1; // 中央の隣の服を選ぶ
+  const target = Math.min(idx + 1, N - 2); // 中央の隣の服を選ぶ（左右とも隣がある位置）
   const imgBefore = await p.$eval(`.item[data-id="${ids[target]}"] .g-img`, (e) => e.getBoundingClientRect());
   const shBefore = await p.$eval(`.item[data-id="${ids[target]}"] .g-shadow`, (e) => Number(e.style.opacity));
   await tapItem(p, ids[target]);
