@@ -44,7 +44,7 @@ async function open(vp, opts = {}) {
   p.errs = [];
   p.on('pageerror', (e) => p.errs.push(e.message));
   await p.goto(URL_);
-  await p.waitForSelector('.item');
+  await p.waitForSelector('.item', { state: 'attached' });
   await settle(p);
   return p;
 }
@@ -239,7 +239,7 @@ await check('7. コーデラック：追加・重複防止・上限3着・個別
   await p.click('.coord-slot:nth-child(2) .btn');
   assert((await p.textContent('.coord-count')) === '2/3', '個別に外す');
   await p.reload();
-  await p.waitForSelector('.item');
+  await p.waitForSelector('.item', { state: 'attached' });
   assert((await p.textContent('.coord-count')) === '2/3', '再読み込み後も残る');
   await p.click('.coord-tab');
   await p.click('.coord-foot .btn');
@@ -332,7 +332,7 @@ await check('12. 初回だけ「左右にスワイプ／服をタップ」の案
   await drag(p, -120);
   assert(!(await p.isVisible('.hint')), '操作で消える');
   await p.reload();
-  await p.waitForSelector('.item');
+  await p.waitForSelector('.item', { state: 'attached' });
   assert(!(await p.isVisible('.hint')), '2回目は出ない');
   await p.context().close();
 });
