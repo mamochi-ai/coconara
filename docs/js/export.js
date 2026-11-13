@@ -310,23 +310,52 @@ export function exportBlockers(doc) {
 }
 
 /** 画像の構成（ページ分けまで）。描画はしない。テスト・プレビューの説明にも使う */
-export function layoutPages(doc, settings, now = new Date(), ctx = document.createElement('canvas').getContext('2d')) {
+export function layoutPages(doc, settings, now = new Date(), ctx = document.createElement('canvas').getContext('2d'), opts = {}) {
   const report = buildReport(doc, settings, now);
   const blocks = blocksFor(ctx, report, doc);
-  return { report, pages: paginate(blocks) };
+  return { report, pages: paginate(blocks), bands: watermarkBands(opts.watermark) };
+}
+
+const BAND_H = 64;
+/**
+ * 体験版の表示（各画像の上端と下端の帯）。opts.watermark が空なら帯なし。
+ * 読める大きさの文字で入れる。コピー防止の仕組みではない。
+ */
+export function watermarkBands(watermark) {
+  if (!watermark) return null;
+  return {
+    height: BAND_H,
+    top: [`${watermark}`, 'かたち合わせ 体験版で作成した画像です'],
+    bottom: [`${watermark}`, '実際のご注文の確認には使用しないでください'],
+  };
+}
+
+function paintBand(ctx, y, lines) {
+  ctx.fillStyle = '#3A3632';
+  ctx.fillRect(0, y, PAGE.width, BAND_H);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.font = font(24, 700);
+  ctx.fillText(lines[0], PAGE.pad, y + BAND_H / 2);
+  const w = ctx.measureText(lines[0]).width;
+  ctx.font = font(16, 400);
+  ctx.fillStyle = '#F2EEE6';
+  ctx.fillText(lines[1], PAGE.pad + w + 24, y + BAND_H / 2 + 1);
 }
 
 /**
  * PNG を作る。戻り値 {report, images:[{blob, width, height, name, index, total}]}
  */
-export async function renderPngs(doc, settings, now = new Date()) {
-  const { report, pages } = layoutPages(doc, settings, now);
+export async function renderPngs(doc, settings, now = new Date(), opts = {}) {
+  const { report, pages, bands } = layoutPages(doc, settings, now, undefined, opts);
+  const bandH = bands ? bands.height : 0;
   const total = pages.length;
   const images = [];
   for (let i = 0; i < total; i++) {
     const pg = pages[i];
     const headerH = total > 1 ? 44 : 0;
-    const height = Math.ceil(PAGE.pad + headerH + pg.blocks.reduce((a, b) => a + b.h, 0) + PAGE.pad);
+    const height = Math.ceil(bandH + PAGE.pad + headerH + pg.blocks.reduce((a, b) => a + b.h, 0) + PAGE.pad + bandH);
     let ratio = PAGE.ratio;
     if (PAGE.width * ratio * height * ratio > MAX_PIXELS) ratio = Math.max(1, Math.sqrt(MAX_PIXELS / (PAGE.width * height)));
     const canvas = document.createElement('canvas');
@@ -336,7 +365,7 @@ export async function renderPngs(doc, settings, now = new Date()) {
     ctx.scale(ratio, ratio);
     ctx.fillStyle = PALETTE.paper;
     ctx.fillRect(0, 0, PAGE.width, height);
-    let y = PAGE.pad;
+    let y = bandH + PAGE.pad;
     if (total > 1) {
       // 複数枚：各画像に注文番号・版番号・ページ番号
       const m = report.meta;
@@ -349,6 +378,10 @@ export async function renderPngs(doc, settings, now = new Date()) {
       paint(ctx, j === 0 && total > 1 ? b.ops.filter((o) => o.t !== 'rule') : b.ops, y);
       y += b.h;
     });
+    if (bands) {
+      paintBand(ctx, 0, bands.top);
+      paintBand(ctx, height - bandH, bands.bottom);
+    }
     const blob = await toBlob(canvas);
     images.push({ blob, width: canvas.width, height: canvas.height, name: pg.name, index: i + 1, total });
   }

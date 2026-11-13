@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<title>かたち合わせ 使い方</title>
+<style>
+  :root {
+    --bg: #FBF8F1; --panel: #FFFFFF; --line: #DDD6C8; --text: #2E2C29; --muted: #6E6A63;
+    --ink: #33312E; --change: #C75F08; --hl: #1F5FBF; --note: #F1EEE7;
+    --font: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text); font-family: var(--font);
+    font-size: 17px; line-height: 1.75;
+    padding: env(safe-area-inset-top, 0px) max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px));
+  }
+  main { max-width: 760px; margin: 0 auto; }
+  header { padding: 24px 0 8px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+  h1 { font-size: 26px; margin: 0; letter-spacing: 0.02em; }
+  .lead { margin: 6px 0 0; font-weight: 700; }
+  h2 { font-size: 20px; margin: 36px 0 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  h3 { font-size: 17px; margin: 20px 0 4px; }
+  p, li { max-width: 40em; }
+  ol, ul { padding-left: 1.4em; }
+  li { margin: 4px 0; }
+  nav ol { columns: 2; column-gap: 24px; font-size: 15px; padding-left: 1.2em; }
+  @media (max-width: 560px) { nav ol { columns: 1; } }
+  a { color: var(--hl); }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin: 12px 0; }
+  .note { background: var(--note); border-radius: 10px; padding: 12px 16px; margin: 12px 0; }
+  .note strong, .important { color: var(--ink); }
+  .warn { border-left: 4px solid var(--change); }
+  figure { margin: 12px 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  figure svg { display: block; width: 100%; max-width: 560px; height: auto; margin: 0 auto; }
+  figcaption { font-size: 14px; color: var(--muted); margin-top: 6px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; vertical-align: top; }
+  th { width: 8em; color: var(--muted); font-weight: 700; }
+  .btnname { display: inline-block; padding: 0 8px; border: 1px solid #BFB6A4; border-radius: 6px; background: #fff; font-size: 0.92em; white-space: nowrap; }
+  .small { font-size: 14px; color: var(--muted); }
+  .table-wrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>かたち合わせ　使い方</h1>
+  <p class="lead">バッグのサイズや仕様変更を、ひと目で伝わる確認画像に。</p>
+  <p class="small">ハンドメイドのバッグ作家が、お客様とのオーダー確認に使うツールです。この使い方は体験版・購入者用の両方に共通です（違いは「体験版について」に記載）。</p>
+</header>
+
+<nav aria-label="目次">
+  <ol>
+    <li><a href="#what">できること</a></li>
+    <li><a href="#shape">対応するバッグの形</a></li>
+    <li><a href="#measure">寸法を測る位置</a></li>
+    <li><a href="#first">初回の確認画像を作る</a></li>
+    <li><a href="#compare">変更前後を比較する</a></li>
+    <li><a href="#save">画像を保存する</a></li>
+    <li><a href="#backup">バックアップと復元</a></li>
+    <li><a href="#new">新しい注文を始める</a></li>
+    <li><a href="#trouble">保存できないとき</a></li>
+    <li><a href="#data">データの保存場所について</a></li>
+    <li><a href="#notes">ご注意</a></li>
+    <li><a href="#trial">体験版について</a></li>
+  </ol>
+</nav>
+
+<h2 id="what">できること</h2>
+<ul>
+  <li>バッグの寸法（本体高さ・袋口幅・マチ・持ち手高さ）と、表地の色・裏地・内ポケットを入力すると、数値に合わせて模式図（正面図・側面図・内側図）が変わります。</li>
+  <li>お客様に送った内容を「変更前」として保存しておくと、その後に直した箇所を自動で比べ、変更点をオレンジ色と文字で示します。</li>
+  <li>お客様に送るための確認画像（PNG）を作れます。お客様用（かんたん）と作家用（詳細）を選べます。</li>
+  <li>入力内容はこの端末のブラウザに自動で保存されます。バックアップ（ファイルまたはテキスト）を書き出して復元できます。</li>
+</ul>
+<p class="small">お客様への送信機能はありません。保存した画像を、普段お使いのメッセージやメールに添付してください。</p>
+
+<h2 id="shape">対応するバッグの形</h2>
+<p>底の角をつまんでマチを作る、シンプルな船底型のトートバッグ1種類です。ほかの形（巾着、ボストン、ファスナー付きの別形状など）には対応していません。</p>
+<p>対応していないこと：型紙・裁断寸法・縫い代の計算、生地の必要量や価格の計算、製作できるかどうかの判断、お客様の承認の記録。</p>
+
+<h2 id="measure">寸法を測る位置</h2>
+<p>すべて<strong>完成状態</strong>の寸法を cm で、小数第1位まで入力します。</p>
+<figure>
+  <svg viewBox="0 0 520 300" role="img" aria-label="測る位置の図。袋口幅は上の左右、底幅は下の左右、本体高さは底から袋口まで、持ち手高さは袋口から持ち手の頂点まで">
+    <rect width="520" height="300" fill="#FFFDF8"/>
+    <path d="M190 120V78Q190 62 206 62H274Q290 62 290 78V120" fill="none" stroke="#4A4743" stroke-width="7"/>
+    <path d="M190 120V78Q190 62 206 62H274Q290 62 290 78V120" fill="none" stroke="#FFFDF8" stroke-width="3"/>
+    <path d="M140 120H340L318 250H162Z" fill="#EEE6D3" stroke="#33312E" stroke-width="2.5"/>
+    <g stroke="#1F5FBF" stroke-width="2" fill="none">
+      <path d="M140 40H340M140 34V46M340 34V46"/>
+      <path d="M162 272H318M162 266V278M318 266V278"/>
+      <path d="M112 120V250M106 120H118M106 250H118"/>
+      <path d="M372 62V120M366 62H378M366 120H378"/>
+    </g>
+    <g stroke="#1F5FBF" stroke-width="1" stroke-dasharray="3 3" fill="none">
+      <path d="M140 46V118M340 46V118M162 252V266M318 252V266M118 120H138M118 250H160M292 62H366M342 120H366"/>
+    </g>
+    <g font-family="Hiragino Sans, Noto Sans CJK JP, sans-serif" font-size="15" fill="#2E2C29">
+      <text x="240" y="28" text-anchor="middle">袋口幅（平らにした左右の幅）</text>
+      <text x="240" y="294" text-anchor="middle">底幅（自動計算）</text>
+      <text x="100" y="180" text-anchor="end">本体高さ</text>
+      <text x="384" y="86">持ち手高さ</text>
+      <text x="384" y="106" font-size="13" fill="#6E6A63">（袋口から頂点まで）</text>
+    </g>
+  </svg>
+  <figcaption>正面から見た模式図。マチ（底の奥行き）は側面図で示します。</figcaption>
+</figure>
+<div class="table-wrap">
+<table>
+  <tr><th>本体高さ</th><td>本体の底から袋口までの高さ。持ち手は含めません。</td></tr>
+  <tr><th>袋口幅</th><td>袋口を平らにした状態の左右の幅。</td></tr>
+  <tr><th>マチ</th><td>底の奥行き。袋口幅より小さい値にします。</td></tr>
+  <tr><th>持ち手高さ</th><td>袋口から持ち手の頂点までの高さ。<strong class="important">持ち手テープの全長ではありません。</strong></td></tr>
+  <tr><th>底幅</th><td>入力しません。<strong>袋口幅 − マチ</strong>で自動計算します。この式は、このツールが対応する船底型トートの場合の関係で、すべてのバッグに当てはまるものではありません。</td></tr>
+</table>
+</div>
+<p class="small">入力できる範囲（本体高さ 5〜80cm、袋口幅 5〜100cm、マチ 0〜40cm、持ち手高さ 3〜50cm）はツール上の目安で、その寸法で製作できることを保証するものではありません。空欄は「未入力」、0 は 0cm として区別します。</p>
+
+<h2 id="first">初回の確認画像を作る</h2>
+<ol>
+  <li>体験版ではサンプルが表示されています。購入者用で初めて開いたときは「使い方」の案内から <span class="btnname">新しい注文を始める</span> を選びます。</li>
+  <li>「入力」で注文番号・寸法・表地の色・裏地・内ポケットを入力します。決まっていない項目は「未定」のままで構いません。</li>
+  <li>「図」で形と寸法を確認します。未入力・未定の項目は一覧に出て、押すとその入力欄へ移動します。</li>
+  <li><span class="btnname">確認画像を作成</span> を押し、保存前プレビューで内容を確認します。</li>
+  <li>「お客様用（かんたん）」を選び、必要なら「側面図を含める」「内側図を含める」「注文メモを含める」を選びます。</li>
+  <li><a href="#save">画像を保存</a>して、お客様に送ります。</li>
+</ol>
+<p>未入力・未定の項目があっても画像は作れます（画像に「未入力・未定の項目」として記載されます）。寸法に誤りがある場合（例：マチが袋口幅以上）は画像を作れず、直す欄へ移動するボタンが表示されます。</p>
+
+<h2 id="compare">変更前後を比較する</h2>
+<ol>
+  <li>お客様に送った内容のまま <span class="btnname">変更前として保存</span> を押します。その時点の内容が「変更前（版1）」として残り、以降の編集は版2になります。</li>
+  <li>お客様の希望に合わせて入力を直します。「比較」に、変更前と変更後の図が同じ縮尺で並び、変更点の一覧が表示されます。</li>
+  <li>件数は「仕様変更」（寸法・表地・裏地・ポケット）だけを数えます。注文メモや「お客様に確認したいこと」の変更は、別に「確認文の変更あり」などと表示します。</li>
+  <li>変更前と同じ値に戻すと、その項目の変更表示は消えます（40 と 40.0 は同じ値として扱います）。</li>
+  <li><span class="btnname">確認画像を作成</span> で、変更前後を並べた画像を作ります。</li>
+</ol>
+<div class="note warn">
+  <p><strong>自動保存と「変更前として保存」は別の操作です。</strong>入力内容は何もしなくても自動でこの端末に保存されます。「変更前として保存」は、比べる基準を記録するためのボタンです。</p>
+  <p><strong>「変更前として保存」は、お客様の承認の記録ではありません。</strong>画像や画面にも「承認済み」などとは表示しません。</p>
+  <p>次の確認に進むときは <span class="btnname">変更前を更新</span> を押します。それまでの変更前（例：版1）との比較は表示できなくなります。</p>
+</div>
+
+<h2 id="save">画像を保存する</h2>
+<p>保存前プレビューの各画像の下に <span class="btnname">画像を保存</span> <span class="btnname">拡大して確認</span> と、共有に対応した環境では <span class="btnname">共有</span> が表示されます。</p>
+<ul>
+  <li><strong>画像を保存</strong>：画像ファイルのダウンロードを始めます。iPad の Safari では、ダウンロードしたファイルは通常「ファイル」アプリの「ダウンロード」に入ります（写真アプリには入りません）。</li>
+  <li><strong>写真に保存したいとき</strong>：<span class="btnname">拡大して確認</span> で画像を表示し、画像を長押しして、表示されたメニューの「"写真"に保存」を選びます。</li>
+  <li><strong>共有</strong>：ブラウザがファイルの共有に対応している場合だけ表示されます。共有をキャンセルしても問題はありません。</li>
+  <li>内容が長いときは「図と変更点」「詳細」の複数の画像に分かれます。1枚ずつ保存してください。ファイル名には注文番号・版・用途・ページ番号が入ります。</li>
+</ul>
+<p class="small">「拡大して確認」の倍率を変えても、保存される画像の大きさや内容は変わりません。保存した画像は幅 2000 ピクセルです。</p>
+
+<h2 id="backup">バックアップと復元</h2>
+<p>ブラウザに保存した内容は、消えることがあります（<a href="#data">データの保存場所について</a>）。区切りのよいところでバックアップを書き出してください。</p>
+<ol>
+  <li><span class="btnname">データ</span> → <span class="btnname">バックアップを書き出す</span> で、今の内容・変更前の内容・版番号・出力設定を JSON ファイルとして保存します。</li>
+  <li>復元するときは <span class="btnname">データ</span> → <span class="btnname">バックアップから復元</span> でファイルを選びます。置き換える前に確認が表示されます。</li>
+  <li>ファイルが使えない場合は「ファイルが使えない場合（テキストで保存・復元）」を開き、テキストをコピーしてメモなどに保存します。復元はテキストを貼り付けて <span class="btnname">テキストから復元</span> です。</li>
+</ol>
+<p>壊れたファイルや、形式の違うファイルを選んだ場合は読み込まず、今の内容はそのまま残ります。以前の版で書き出したバックアップも読み込めます。</p>
+
+<h2 id="new">新しい注文を始める</h2>
+<p>次のどれかから始められます。</p>
+<ul>
+  <li>サンプル表示中の帯にある <span class="btnname">サンプルを消して新しい注文を始める</span></li>
+  <li><span class="btnname">データ</span> → <span class="btnname">新しい注文を始める（内容を消去）</span></li>
+  <li>右上の <span class="btnname">使い方</span> → <span class="btnname">新しい注文を始める</span>（購入者用）</li>
+</ul>
+<p>今の内容は消え、元に戻せません。サンプル以外の内容があるときは、確認画面に <span class="btnname">先にバックアップを書き出す</span> が表示されます。1つのブラウザで同時に扱える注文は1件です。</p>
+
+<h2 id="trouble">保存できないとき</h2>
+<ul>
+  <li>画面上部に「端末に保存できません」と出る場合：プライベートブラウズや、サイトデータを保存しない設定では保存できないことがあります。編集と画像の作成は続けられます。終わる前に必ずバックアップを書き出してください。</li>
+  <li><span class="btnname">画像を保存</span> で保存できない場合：<span class="btnname">拡大して確認</span> で画像を表示し、長押しで保存してください。</li>
+  <li>「確認画像を作成できません」と出る場合：表示された項目（例：マチ）の値を直します。<span class="btnname">○○の欄へ移動</span> で入力欄へ移動できます。</li>
+</ul>
+
+<h2 id="data">データの保存場所について</h2>
+<ul>
+  <li>入力内容は、<strong>今使っている端末のブラウザの中だけ</strong>に保存されます。サーバーへの送信や、ほかの端末との自動同期はしません。</li>
+  <li>iPad とスマートフォン、Safari とほかのブラウザでは、それぞれ別に保存されます。別の端末で続けるには、バックアップを書き出して復元してください。</li>
+  <li>ブラウザの履歴やサイトデータの削除、空き容量の不足、ブラウザの設定などにより、保存した内容が消えることがあります。</li>
+  <li>体験版と購入者用は保存場所が別です。体験版で入力した内容は、購入者用には引き継がれません。</li>
+</ul>
+
+<h2 id="notes">ご注意</h2>
+<ul>
+  <li><strong>模式図です。型紙・裁断図ではありません。</strong>図の形は模式的なもので、寸法は記載した数値を優先してください。</li>
+  <li><strong>色は目安です。</strong>画面や端末によって実際の生地の色とは異なります。</li>
+  <li>持ち手とポケットの色・ポケットの大きさは、このツールでは指定しません（図では色を塗らずに示します）。内ポケットは「内側の片面中央に1個」として扱います。</li>
+  <li>「未入力・未定の項目：なし」は入力項目の状況を示すもので、製作できること、入れたい物が収まることを示すものではありません。注文メモの内容（例：「A4が入る大きさ」）をツールが判断することはありません。</li>
+</ul>
+
+<h2 id="trial">体験版について</h2>
+<ul>
+  <li>体験版は、架空のサンプルで入力・図・比較・拡大・画像保存を試すためのものです。</li>
+  <li>体験版で作った確認画像には、上下に「体験版・サンプル」と入ります。</li>
+  <li>体験版には、実際のお客様の情報を入力しないでください。</li>
+  <li>購入者用は、確認画像に体験版の表示が入りません。機能は体験版と同じです。</li>
+</ul>
+<p class="small">この使い方は、ツールの現在の動作に合わせて記載しています。iPad の Safari での細かな表示（ダウンロード時の確認画面など）は、iOS のバージョンによって異なる場合があります。</p>
+</main>
+</body>
+</html>

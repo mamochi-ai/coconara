@@ -360,3 +360,31 @@ ul.plain { padding-left: 1.2em; }
 @media (max-width: 600px) {
   .tabs { top: 0; }
 }
+
+/* ---------- 版の表示・使い方 ---------- */
+.brand { flex-wrap: wrap; align-items: center; }
+.edition-badge {
+  display: inline-block; padding: 1px 8px; border-radius: 4px;
+  border: 1.5px solid var(--ink); font-size: 12.5px; font-weight: 700; letter-spacing: 0.04em;
+}
+.btn-help {
+  min-height: 44px; padding: 4px 14px; border: 1px solid var(--line-strong); border-radius: 999px;
+  background: var(--panel); color: var(--ink); font-size: 14px; font-weight: 600; cursor: pointer; touch-action: manipulation;
+}
+.trial-banner {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px;
+  margin: 8px 16px 0; padding: 8px 12px; border-radius: 8px;
+  background: #F1EEE7; border: 1px solid var(--line-strong); font-size: 13.5px;
+}
+.purchase-link { font-weight: 700; color: var(--ink); }
+.sample-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.btn-small { min-height: 44px; padding: 4px 12px; font-size: 13.5px; }
+.guide-lead { font-weight: 700; font-size: 16px; }
+.guide-steps { margin: 8px 0; padding-left: 1.4em; display: grid; gap: 8px; }
+.guide-steps li strong { display: block; }
+.guide-steps li span { color: var(--muted); font-size: 14px; }
+.guide-note, .trial-note { background: #F1EEE7; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+@media (max-width: 600px) {
+  .btn-help { margin-left: auto; }
+  .trial-banner, .sample-banner { margin: 8px 10px 0; }
+}

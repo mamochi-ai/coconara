@@ -1,7 +1,9 @@
 // 端末内保存（localStorage）。使えない環境でもアプリは止めない。
 import { serializeDoc, parseBackup } from './model.js';
+import { EDITION } from './edition.js';
 
-export const STORAGE_KEY = 'katachi-awase:doc';
+// 版ごとに保存場所を分ける（体験版と購入者用のデータが混ざらない）
+export const STORAGE_KEY = EDITION.storageKey;
 
 function getStorage() {
   try {
@@ -44,4 +46,14 @@ export function saveDoc(doc) {
     const quota = e && (e.name === 'QuotaExceededError' || e.code === 22);
     return { ok: false, reason: quota ? 'quota' : 'denied' };
   }
+}
+
+/** 初回案内を閉じたかどうか（保存できない環境では毎回 false） */
+export function guideSeen() {
+  const s = getStorage();
+  try { return !!(s && s.getItem(EDITION.guideKey)); } catch { return false; }
+}
+export function markGuideSeen() {
+  const s = getStorage();
+  try { if (s) s.setItem(EDITION.guideKey, '1'); } catch { /* 保存できなくても続ける */ }
 }

@@ -4,6 +4,7 @@
 import { createRequire } from 'node:module';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { createServer } from '../../scripts/serve.mjs';
 
 const require = createRequire(import.meta.url);
@@ -23,9 +24,15 @@ async function check(name, fn) {
 }
 function assert(cond, msg) { if (!cond) throw new Error(msg); }
 
-const server = createServer();
+// 購入者用を作ってから確認する（既存機能の確認は購入者用、体験版は /trial/ で確認）
+execFileSync(process.execPath, [fileURLToPath(new URL('../../scripts/build.mjs', import.meta.url))], { stdio: 'inherit' });
+const FULL_DIR = fileURLToPath(new URL('../../build/katachi-awase/web/', import.meta.url));
+const TRIAL_DIR = fileURLToPath(new URL('../../docs/', import.meta.url));
+const SINGLE_FILE = fileURLToPath(new URL('../../build/katachi-awase/single/katachi-awase.html', import.meta.url));
+const server = createServer({ '/': FULL_DIR, '/trial/': TRIAL_DIR });
 await new Promise((r) => server.listen(0, r));
 const URL_ = `http://localhost:${server.address().port}/`;
+const TRIAL_URL = `${URL_}trial/`;
 await mkdir(OUT, { recursive: true });
 const browser = await chromium.launch();
 
@@ -40,8 +47,14 @@ async function newPage(viewport, opts = {}) {
   page.errors = [];
   page.on('pageerror', (e) => page.errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') page.errors.push(m.text()); });
-  await page.goto(URL_);
+  await page.goto(opts.url || URL_);
+  // 初回の「使い方」を閉じてから操作する（画面の「閉じる」を押す）
+  if (!opts.keepGuide) await closeGuide(page);
   return page;
+}
+async function closeGuide(page) {
+  const g = page.locator('.modal h2', { hasText: '使い方' });
+  if (await g.count()) await page.locator('.modal [data-close]').tap();
 }
 const IPAD_L = { width: 1180, height: 820 };
 const IPAD_P = { width: 820, height: 1180 };
@@ -175,7 +188,7 @@ await check('3. 未入力と0を混同しない', async () => {
   assert(!pend.includes('マチ'), pend);
   await setField(page, '#f-gusset', '');
   pend = await visibleText(page, '.list-block.pending');
-  assert(pend.includes('マチ：未入力'), pend);
+  assert(pend.includes('マチ：未入力'), `${pend} / ${await page.evaluate(() => [document.getElementById('app').dataset.view, document.getElementById('app').hasAttribute('inert'), !!document.querySelector('.modal'), document.getElementById('diagramLists').textContent.slice(0, 80)].join(' | '))}`);
   assert((await page.textContent('#bottomReadout')).includes('入力すると計算'), '空欄なら底幅は未計算');
   const svg = await page.innerHTML('#diagram');
   assert(svg.includes('マチ ？cm（未入力）'), '図で？表示');
@@ -507,6 +520,7 @@ await check('V9-11. PNGを実際にダウンロードして画像として開け
   p.errors = [];
   p.on('pageerror', (e) => p.errors.push(e.message));
   await p.goto(URL_);
+  await closeGuide(p);
   await loadSample(p);
   await openPreview(p);
   assert(!(await p.locator('[data-share]').first().isVisible()), '共有ボタンは非表示');
@@ -558,6 +572,7 @@ await check('共有をキャンセルしてもエラー表示にしない', asyn
   });
   const p = await ctx.newPage();
   await p.goto(URL_);
+  await closeGuide(p);
   await loadSample(p);
   await openPreview(p);
   const sh = p.locator('.preview-page[data-page="0"] [data-share]');
@@ -630,6 +645,174 @@ async function guideCheck(viewport) {
 await check('U. 初めて使う人の導線（iPad縦 768×1024）', () => guideCheck({ width: 768, height: 1024 }));
 await check('U. 初めて使う人の導線（iPad横 1024×768）', () => guideCheck({ width: 1024, height: 768 }));
 await check('U. 初めて使う人の導線（スマートフォン 390×844）', () => guideCheck({ width: 390, height: 844 }));
+
+// ---------- 体験版と購入者用 ----------
+/** 確認画像の上端・下端の色（体験版は濃い帯、購入者用は紙の色） */
+const edgeColors = (p) => p.$eval('.preview-page[data-page="0"] .preview-img', async (img) => {
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const x = c.getContext('2d');
+  x.drawImage(img, 0, 0);
+  const px = (yy) => Array.from(x.getImageData(20, yy, 1, 1).data.slice(0, 3));
+  return { top: px(20), bottom: px(img.naturalHeight - 20), w: img.naturalWidth, h: img.naturalHeight };
+});
+const isDark = (rgb) => rgb.every((v) => v < 90);
+
+await check('P1. 体験版：初回の使い方・サンプル・体験版の表示・購入リンクなし', async () => {
+  const p = await newPage(IPAD_P, { url: TRIAL_URL, keepGuide: true });
+  const g = await p.textContent('.modal');
+  assert(g.includes('バッグの寸法と仕様を入力') && g.includes('変更前として保存') && g.includes('自動で保存') && g.includes('体験版'), g);
+  await p.screenshot({ path: `${OUT}trial-guide.png` });
+  await p.locator('.modal-actions .btn-primary').tap(); // 「サンプルで試してみる」
+  assert(await p.locator('.modal').count() === 0, '案内を閉じられる');
+  assert(await p.isVisible('#trialBanner') && await p.isVisible('#editionBadge'), '体験版の表示');
+  assert(await p.isVisible('#sampleBanner'), 'サンプルを表示');
+  assert(await p.isHidden('#purchaseLink'), '購入先が未設定なら購入リンクを出さない');
+  assert(!(await p.content()).includes('.zip'), 'ZIPへのリンクなし');
+  assert((await p.textContent('#tab-compare')).includes('仕様変更3件'), 'サンプルの比較');
+  // 案内を閉じても操作できる
+  await p.tap('#tab-input');
+  await p.fill('#f-height', '35');
+  await p.tap('#tab-compare');
+  assert((await p.textContent('#tab-compare')).includes('仕様変更4件'), '操作を続けられる');
+  // 「使い方」で再表示
+  await p.tap('#btnHelp');
+  assert((await p.textContent('.modal h2')) === '使い方', '再表示');
+  await p.tap('.modal [data-close]');
+  // 再読み込みでは案内を出さない
+  await p.reload();
+  assert(await p.locator('.modal').count() === 0, '2回目は案内なし');
+  // 体験版の画像：上下に体験版の帯
+  await p.tap('#btnExport');
+  await p.waitForSelector('.preview-img');
+  assert((await p.textContent('.modal')).includes('体験版・サンプル'), 'プレビューの案内');
+  const e = await edgeColors(p);
+  assert(isDark(e.top) && isDark(e.bottom), `体験版の帯 ${JSON.stringify(e)}`);
+  const png = await p.$eval('.preview-page[data-page="0"] .preview-img', async (img) => {
+    const b = new Uint8Array(await (await fetch(img.src)).arrayBuffer()); let s = ''; for (const c of b) s += String.fromCharCode(c); return btoa(s);
+  });
+  await writeFile(`${OUT}trial-customer.png`, Buffer.from(png, 'base64'));
+  await p.tap('.modal [data-close]');
+  // 保存場所は体験版用
+  const keys = await p.evaluate(() => Object.keys(localStorage));
+  assert(keys.includes('katachi-awase:trial:doc') && !keys.includes('katachi-awase:doc'), JSON.stringify(keys));
+  assert(p.errors.length === 0, p.errors.join(' / '));
+  await p.context().close();
+});
+
+await check('P2. 同じドメインでも体験版と購入者用のデータが混ざらない', async () => {
+  const ctx = await browser.newContext({ viewport: IPAD_L, hasTouch: true, acceptDownloads: true });
+  const p = await ctx.newPage();
+  p.errors = [];
+  p.on('pageerror', (e) => p.errors.push(e.message));
+  // 購入者用で実際の注文を入力
+  await p.goto(URL_);
+  await closeGuide(p);
+  assert(await p.isHidden('#trialBanner') && await p.isHidden('#editionBadge'), '購入者用に体験版表示なし');
+  assert(await p.isHidden('#sampleBanner'), '購入者用は空の状態から');
+  await p.fill('#f-orderNo', 'REAL-100');
+  await p.fill('#f-height', '28');
+  await p.waitForTimeout(500);
+  // 体験版を開く：購入者用の内容は出ない
+  await p.goto(TRIAL_URL);
+  await closeGuide(p);
+  if (!(await p.locator('#f-orderNo').isVisible())) await p.tap('#tab-input');
+  assert((await p.inputValue('#f-orderNo')) === 'SAMPLE-001', '体験版はサンプル');
+  await p.fill('#f-height', '33');
+  await p.waitForTimeout(500);
+  // 購入者用に戻る：体験版の編集は入らない
+  await p.goto(URL_);
+  assert((await p.inputValue('#f-orderNo')) === 'REAL-100' && (await p.inputValue('#f-height')) === '28', '購入者用の内容が保たれる');
+  // 購入者用の画像には体験版の帯がない
+  await p.fill('#f-mouthWidth', '40'); await p.fill('#f-gusset', '10'); await p.fill('#f-handleHeight', '15');
+  await p.tap('#btnExport');
+  await p.waitForSelector('.preview-img');
+  assert(!(await p.textContent('.modal')).includes('体験版'), 'プレビューに体験版の案内なし');
+  const e = await edgeColors(p);
+  assert(!isDark(e.top) && !isDark(e.bottom), `購入者用に帯なし ${JSON.stringify(e)}`);
+  await p.tap('.modal [data-close]');
+  const keys = await p.evaluate(() => Object.keys(localStorage).sort());
+  assert(JSON.stringify(keys.filter((k) => k.endsWith(':doc'))) === JSON.stringify(['katachi-awase:doc', 'katachi-awase:trial:doc']), JSON.stringify(keys));
+  assert(p.errors.length === 0, p.errors.join(' / '));
+  await ctx.close();
+});
+
+await check('P3. 購入者用：使い方から新しい注文、消す前のバックアップ案内', async () => {
+  const p = await newPage(PHONE, { keepGuide: true });
+  const acts = await p.$$eval('.modal-actions button', (els) => els.map((e) => e.textContent.trim()));
+  assert(acts.includes('サンプルで試す') && acts.includes('新しい注文を始める'), JSON.stringify(acts));
+  await p.getByRole('button', { name: 'サンプルで試す' }).tap();
+  await p.waitForSelector('#sampleBanner:not([hidden])');
+  // サンプルを消して始める（サンプルなのでバックアップは求めない）
+  await p.getByRole('button', { name: 'サンプルを消して新しい注文を始める' }).tap();
+  let t = await p.textContent('.modal');
+  assert(!t.includes('先にバックアップ'), 'サンプルにはバックアップ不要');
+  await p.locator('.modal-actions .btn-danger').tap();
+  assert(await p.isHidden('#sampleBanner') && (await p.inputValue('#f-height')) === '', '空の注文');
+  // 実際の内容があるときは、先にバックアップを選べる
+  await p.fill('#f-orderNo', 'REAL-200');
+  await p.tap('#btnData');
+  await p.tap('#dNew');
+  t = await p.textContent('.modal');
+  assert(t.includes('元に戻せません') && t.includes('先にバックアップを書き出す'), t);
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.getByRole('button', { name: '先にバックアップを書き出す' }).tap()]);
+  assert(/^katachi_backup_REAL-200_v1\.json$/.test(dl.suggestedFilename()), dl.suggestedFilename());
+  const saved = JSON.parse(await readFile(await dl.path(), 'utf8'));
+  assert(saved.edition === 'full' && saved.data.current.orderNo === 'REAL-200', 'バックアップの中身');
+  // バックアップ後も確認が残り、キャンセルできる
+  await p.waitForSelector('.modal-actions .btn-danger');
+  await p.tap('.modal-actions .btn:not(.btn-danger):not(.btn-primary)');
+  assert((await p.inputValue('#f-orderNo')) === 'REAL-200', 'キャンセルで残る');
+  assert(p.errors.length === 0, p.errors.join(' / '));
+  await p.context().close();
+});
+
+await check('P4. 旧形式のバックアップを購入者用・体験版の両方で読み込める', async () => {
+  const fixture = fileURLToPath(new URL('../fixtures/backup-v1.json', import.meta.url));
+  for (const url of [URL_, TRIAL_URL]) {
+    const p = await newPage(IPAD_L, { url });
+    await p.tap('#btnData');
+    await p.setInputFiles('#fileInput', fixture);
+    await p.waitForSelector('.modal h2:text("バックアップから復元")');
+    await p.locator('.modal-actions .btn-danger').tap();
+    assert((await p.inputValue('#f-mouthWidth')) === '45', url);
+    assert((await p.textContent('#orderMeta')).includes('変更前：版1'), 'meta');
+    await p.context().close();
+  }
+});
+
+await check('P5. 1ファイル版を直接開いて動く（パソコン用ブラウザ Chromium、file://）', async () => {
+  const ctx = await browser.newContext({ viewport: IPAD_L, hasTouch: true, acceptDownloads: true });
+  const p = await ctx.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(e.message));
+  await p.goto(`file://${SINGLE_FILE}`);
+  await closeGuide(p);
+  assert(await p.isHidden('#trialBanner'), '購入者用');
+  await p.tap('#btnSample');
+  await p.waitForSelector('#sampleBanner:not([hidden])');
+  assert((await p.textContent('#tab-compare')).includes('仕様変更3件'), '比較');
+  await p.tap('#btnExport');
+  await p.waitForSelector('.preview-img');
+  const e = await edgeColors(p);
+  assert(e.w === 2000 && !isDark(e.top), JSON.stringify(e));
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.locator('.preview-page[data-page="0"] [data-dl]').tap()]);
+  assert(dl.suggestedFilename().endsWith('.png'), dl.suggestedFilename());
+  assert(errs.length === 0, errs.join(' / '));
+  await ctx.close();
+});
+
+await check('P6. 使い方ページ（iPad縦・スマートフォン幅で横スクロールなし）', async () => {
+  for (const vp of [IPAD_P, PHONE]) {
+    const p = await newPage(vp, { url: `${URL_}manual.html`, keepGuide: true });
+    const r = await p.evaluate(() => ({ sw: document.documentElement.scrollWidth, w: innerWidth, h2: [...document.querySelectorAll('h2')].map((h) => h.textContent) }));
+    assert(r.sw <= r.w + 1, `横スクロール ${r.sw}>${r.w}`);
+    for (const h of ['できること', '対応するバッグの形', '寸法を測る位置', '画像を保存する', 'バックアップと復元', '新しい注文を始める', '保存できないとき', 'データの保存場所について']) assert(r.h2.includes(h), h);
+    await p.screenshot({ path: `${OUT}manual-${vp.width}.png`, fullPage: false });
+    await p.context().close();
+  }
+});
 
 // ---------- 保存拒否 ----------
 await check('11. 保存が拒否された環境でもアプリが停止しない', async () => {

@@ -14,7 +14,9 @@
   <header class="topbar">
     <div class="brand">
       <span class="brand-name">かたち合わせ</span>
+      <span class="edition-badge" id="editionBadge" hidden>体験版</span>
       <span class="brand-sub">バッグ仕様の確認</span>
+      <button type="button" class="btn-help" id="btnHelp">使い方</button>
     </div>
     <div class="actions">
       <button type="button" class="btn" id="btnSample">サンプルで試す</button>
@@ -28,7 +30,14 @@
     <div class="order-meta" id="orderMeta" aria-live="polite"></div>
     <div class="save-status" id="saveStatus" role="status" aria-live="polite"></div>
   </div>
-  <div class="sample-banner" id="sampleBanner" hidden>架空のサンプルで試しています（実在の注文ではありません）</div>
+  <div class="trial-banner" id="trialBanner" hidden>
+    <span><strong>体験版</strong>：架空のサンプルで操作を試せます。実際のお客様の情報は入力しないでください。</span>
+    <a class="purchase-link" id="purchaseLink" hidden target="_blank" rel="noopener">購入ページへ</a>
+  </div>
+  <div class="sample-banner" id="sampleBanner" hidden>
+    <span>架空のサンプルを表示しています（実在の注文ではありません）</span>
+    <button type="button" class="btn btn-small" id="btnNewFromSample">サンプルを消して新しい注文を始める</button>
+  </div>
   <p class="scheme-note">仕様確認用の模式図です。型紙・裁断図ではありません。</p>
 
   <div class="tabs" role="tablist" aria-label="表示の切り替え">

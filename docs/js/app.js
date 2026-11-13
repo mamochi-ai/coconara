@@ -3,8 +3,9 @@ import {
   fieldValues, sampleDoc, compareOrders, defaultOutput, hasContent, serializeDoc, parseBackup,
 } from './model.js';
 import { buildScene, buildCompareScene, sceneToSvg } from './diagram.js';
-import { renderPngs, exportBlockers, imageFileName } from './export.js';
-import { loadDoc, saveDoc } from './storage.js';
+import { renderPngs, exportBlockers, imageFileName, safeFilePart } from './export.js';
+import { loadDoc, saveDoc, guideSeen, markGuideSeen } from './storage.js';
+import { EDITION } from './edition.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -30,6 +31,11 @@ const isNarrow = () => window.innerWidth < 700;
 function init() {
   const loaded = loadDoc();
   if (loaded.doc) state.doc = loaded.doc;
+  else if (EDITION.startWithSample && loaded.error !== 'broken') {
+    // 体験版：保存データがなければ架空のサンプルで始める
+    state.doc = sampleDoc();
+    state.tab = 'compare';
+  }
   state.loadError = loaded.error;
   if (loaded.error === 'unavailable') state.save = { status: 'unavailable' };
   if (loaded.error === 'broken') state.save = { status: 'broken' };
@@ -43,7 +49,60 @@ function init() {
   trackTopbarHeight();
   fillForm();
   if (!hasContent(state.doc) && isWide()) state.tab = 'diagram';
+  applyEdition();
   render();
+  if (!guideSeen()) openGuide({ first: true });
+}
+
+/** 版ごとの表示（体験版の表示・購入ページへの案内） */
+function applyEdition() {
+  const trial = EDITION.id === 'trial';
+  document.documentElement.dataset.edition = EDITION.id;
+  $('#editionBadge').hidden = !trial;
+  $('#trialBanner').hidden = !trial;
+  const link = $('#purchaseLink');
+  // 購入ページが未設定なら、購入への案内は表示しない
+  if (trial && EDITION.purchaseUrl) {
+    link.href = EDITION.purchaseUrl;
+    link.hidden = false;
+  } else {
+    link.hidden = true;
+  }
+}
+
+// ---------- 使い方（初回案内） ----------
+
+function openGuide({ first = false } = {}) {
+  const trial = EDITION.id === 'trial';
+  const actions = [];
+  if (trial) {
+    if (!state.doc.isSample) actions.push({ label: 'サンプルを表示', value: 'sample' });
+    actions.push({ label: first ? 'サンプルで試してみる' : '閉じる', value: null, primary: true });
+  } else {
+    actions.push({ label: 'サンプルで試す', value: 'sample' });
+    actions.push({ label: '新しい注文を始める', value: 'new' });
+    actions.push({ label: '閉じる', value: null, primary: true });
+  }
+  return openModal({
+    title: '使い方',
+    html: `
+      <p class="guide-lead">バッグのサイズや仕様変更を、ひと目で伝わる確認画像に。</p>
+      <ol class="guide-steps">
+        <li><strong>バッグの寸法と仕様を入力</strong>
+          <span>入力した内容は、この端末に自動で保存されます。</span></li>
+        <li><strong>お客様に送った内容を「変更前として保存」</strong>
+          <span>自動保存とは別のボタンです。押したときの内容が「変更前」として残り、あとで直した箇所と比べられます。</span></li>
+        <li><strong>「確認画像を作成」で画像を保存して、お客様に送る</strong>
+          <span>変更前があれば、変更前後を並べた画像になります。</span></li>
+      </ol>
+      ${trial ? '<p class="guide-note">これは体験版です。確認画像には「体験版・サンプル」と入ります。実際のお客様の情報は入力しないでください。</p>' : ''}
+      <p class="hint"><a href="./manual.html" target="_blank" rel="noopener">詳しい使い方（測る位置・保存のしかた・バックアップ）</a>　この案内は右上の「使い方」でいつでも開けます。</p>`,
+    actions,
+  }).then((v) => {
+    markGuideSeen();
+    if (v === 'sample') onSample();
+    else if (v === 'new') startNewOrder();
+  });
 }
 
 /** 上部の帯の高さを CSS 変数に（固定したタブを帯の直下に置くため） */
@@ -145,6 +204,8 @@ function bindEvents() {
   $('#btnBaseline').addEventListener('click', onBaseline);
   $('#btnExport').addEventListener('click', onExport);
   $('#btnData').addEventListener('click', onData);
+  $('#btnHelp').addEventListener('click', () => openGuide());
+  $('#btnNewFromSample').addEventListener('click', startNewOrder);
   $('#fileInput').addEventListener('change', onFileChosen);
 }
 
@@ -160,8 +221,16 @@ function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveNow, 350);
 }
+// 画面を離れる・再読み込みする直前にも保存する（入力直後の自動保存待ちで失われないように）
+function flushSave() {
+  if (saveTimer) saveNow();
+}
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
+
 function saveNow() {
   clearTimeout(saveTimer);
+  saveTimer = null;
   const r = saveDoc(state.doc);
   state.save = r.ok ? { status: 'saved', at: r.at } : { status: 'failed', reason: r.reason };
   renderSaveStatus();
@@ -491,11 +560,59 @@ function replaceDoc(doc) {
 
 // ---------- 操作 ----------
 
-async function onSample() {
-  if (hasContent(state.doc)) {
-    const ok = await confirmModal('サンプルで試す', '<p>現在の内容（変更前を含む）を、架空のサンプルで置き換えます。</p><p class="hint">必要な場合は、先に「データ」からバックアップを書き出してください。</p>', 'サンプルに置き換える', true);
-    if (!ok) return;
+/**
+ * 今の内容を消す前の確認。サンプルでない内容があるときは、バックアップの書き出しを先に選べる。
+ * 戻り値：true＝続ける
+ */
+async function confirmErase(title, what, okLabel) {
+  const doc = state.doc;
+  if (!hasContent(doc)) return true;
+  const real = !doc.isSample;
+  for (;;) {
+    const v = await openModal({
+      title,
+      html: `<p>${what}</p>
+        ${real ? '<p><strong>今の内容と変更前の内容は消え、元に戻せません。</strong>残しておく場合は、先にバックアップを書き出してください。</p>' : '<p class="hint">今表示しているのは架空のサンプルです。</p>'}`,
+      actions: [
+        { label: 'キャンセル', value: false },
+        ...(real ? [{ label: '先にバックアップを書き出す', value: 'backup' }] : []),
+        { label: okLabel, value: true, danger: true },
+      ],
+    });
+    if (v === 'backup') { await backupForErase(); continue; }
+    return v === true;
   }
+}
+
+/** 消去の前のバックアップ：ダウンロードできる環境はファイル、できない環境はテキストで */
+async function backupForErase() {
+  if (!FRAMED) {
+    downloadBlob(new Blob([backupText()], { type: 'application/json' }), backupFileName());
+    toast('バックアップのダウンロードを開始しました');
+    return;
+  }
+  await openModal({
+    title: 'バックアップ（テキスト）',
+    html: '<p>この表示ではファイルを保存できません。下のテキストをすべてコピーして、メモなどに保存してください。</p><textarea id="eraseBackup" rows="8" readonly spellcheck="false" aria-label="バックアップのテキスト"></textarea>',
+    onMount: (m) => { const ta = $('#eraseBackup', m); ta.value = backupText(); ta.focus(); ta.select(); },
+  });
+}
+
+async function startNewOrder() {
+  const trial = EDITION.id === 'trial';
+  const ok = await confirmErase('新しい注文を始める', `今の内容を消して、空の状態から入力を始めます。${trial ? '体験版では、実際のお客様の情報は入力しないでください。' : ''}`, '消去して始める');
+  if (!ok) return;
+  replaceDoc(emptyDoc());
+  state.tab = 'input';
+  render();
+  window.scrollTo(0, 0);
+  toast('新しい注文を始めました。寸法から入力してください');
+  const first = $('#f-orderNo');
+  if (first) try { first.focus({ preventScroll: true }); } catch { /* 無視 */ }
+}
+
+async function onSample() {
+  if (!(await confirmErase('サンプルで試す', '今の内容を、架空のサンプルで置き換えます。', 'サンプルに置き換える'))) return;
   replaceDoc(sampleDoc());
   state.tab = 'compare';
   render();
@@ -574,7 +691,7 @@ async function onExport() {
     box.innerHTML = '<p class="hint">画像を作成しています…</p>';
     let result;
     try {
-      result = await renderPngs(doc, settings);
+      result = await renderPngs(doc, settings, new Date(), { watermark: EDITION.watermark });
     } catch (e) {
       if (my !== seq) return;
       box.innerHTML = `<p class="error-text">！ 画像を作成できませんでした（${esc(e.message || '不明なエラー')}）</p>`;
@@ -616,6 +733,7 @@ async function onExport() {
           <label class="check"><input type="checkbox" id="opt-memo"><span>注文メモを含める</span><small id="opt-memo-note"></small></label>
         </div>
       </div>
+      ${EDITION.watermark ? `<p class="trial-note">体験版のため、画像の上下に「${esc(EDITION.watermark)}」と入ります。</p>` : ''}
       ${pendingN ? `<p class="pending-note"><span aria-hidden="true">？</span>未入力・未定の項目が ${pendingN} 件あります。画像にもそのまま記載されます。</p>` : ''}
       <p class="hint" id="pageInfo" hidden></p>
       <p class="hint">${FRAMED ? '画像を長押しして「"写真"に保存」を選ぶと保存できます。' : '「画像を保存」で保存できない場合は、画像を長押しして、出てくるメニューの「"写真"に保存」を選んでください。'}</p>
@@ -787,13 +905,20 @@ function downloadBlob(blob, name) {
 
 // ---------- データ（バックアップ） ----------
 
+function backupFileName() {
+  const doc = state.doc;
+  const ed = EDITION.id === 'trial' ? '_trial' : '';
+  return `katachi_backup${ed}_${safeFilePart(doc.current.orderNo)}_v${doc.version}.json`;
+}
+
 function backupText() {
-  return JSON.stringify(serializeDoc(state.doc), null, 2);
+  // どの版で書き出したかを記録（読み込み時の判定には使わない）
+  return JSON.stringify({ ...serializeDoc(state.doc), edition: EDITION.id }, null, 2);
 }
 
 async function onData() {
   const doc = state.doc;
-  const name = `katachi_backup_${(doc.current.orderNo.trim() || 'order').replace(/[^\w.-]+/g, '_').slice(0, 40)}_v${doc.version}.json`;
+  const name = backupFileName();
   await openModal({
     title: 'データ（バックアップと復元）',
     html: `
@@ -834,14 +959,9 @@ async function onData() {
         closeModal(null);
         importText(text);
       });
-      $('#dNew', modal).addEventListener('click', async () => {
+      $('#dNew', modal).addEventListener('click', () => {
         closeModal(null);
-        const ok = await confirmModal('新しい注文を始める', '<p>今の内容と変更前の内容を消去し、空の状態から始めます。この操作は取り消せません。</p><p class="hint">必要な場合は、先にバックアップを書き出してください。</p>', '消去して始める', true);
-        if (!ok) return;
-        replaceDoc(emptyDoc());
-        state.tab = 'input';
-        render();
-        toast('新しい注文を始めました');
+        startNewOrder();
       });
     },
   });

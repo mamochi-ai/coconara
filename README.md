@@ -18,13 +18,24 @@ docs/               ← 公開するファイル一式（静的ホスティン�
   js/report.js      確認画像の内容（お客様用・作家用）を共通データから組み立て
   js/export.js      確認画像（PNG）の描画とページ分け
   js/storage.js     端末内保存（使えなくても動作継続）
+  js/edition.js     版の設定（公開体験版／購入者用。ここだけが版によって異なる）
   js/app.js         画面の操作
+  manual.html       使い方（体験版・購入者用で共通）
+scripts/build.mjs   購入者用の配布物を build/ に作る（build/ は git 管理外）
+product/            販売説明の下書き、配布と公開の手順、購入者向け README の元
 scripts/serve.mjs   確認用の簡易サーバー（依存パッケージなし）
 tests/unit/         計算・変更判定・図の単体テスト（node:test）
 tests/e2e/run.mjs   ブラウザ操作テスト（Playwright + Chromium）
 ```
 
 ビルド手順はありません。依存パッケージもありません（ブラウザテストのみ Playwright を使用）。
+
+## 公開体験版と購入者用
+
+- `docs/` は**公開体験版**です（架空のサンプルで始まり、確認画像の上下に「体験版・サンプル」の帯が入ります）。
+- 購入者用は `node scripts/build.mjs` で `build/` に作ります。`docs/js/edition.js` の版の設定行だけを差し替え、ほかのコードは共通です。1ファイル版と配布 ZIP も作ります。
+- 体験版と購入者用は、ブラウザ内の保存場所を分けています（同じドメインで開いても混ざりません）。
+- これは表示と保存場所を分ける仕組みで、購入者の認証やコピー防止ではありません。詳しくは `product/配布と公開の手順.md`。
 
 ## 起動・プレビュー
 
@@ -33,7 +44,8 @@ Node.js 18 以上がある環境で:
 ```
 npm start            # http://localhost:8080/ で docs/ を配信
 npm test             # 単体テスト
-npm run test:e2e     # ブラウザ操作テスト（Playwright が必要。結果の画像は test-output/）
+npm run build        # 購入者用の配布物を build/ に作る
+npm run test:e2e     # ブラウザ操作テスト（購入者用を作ってから実行。Playwright が必要。結果の画像は test-output/）
 ```
 
 JavaScript モジュールを使うため、HTML ファイルを直接開く（file://）のではなく、Web サーバー経由で開いてください。
