@@ -33,11 +33,13 @@ interface ItemPhys {
 }
 
 const TAP_SLOP = 8; // これ以上動いたらタップではない（px）
-const START_INDEX = 3;
+
 
 export const Rack = forwardRef<RackHandle, Props>(function Rack(props, ref) {
   const { products, selected, panelWidth, sheetHeight, reducedMotion } = props;
   const n = products.length;
+  // 最初は真ん中の服を中央に（左右に次の服が見える）
+  const START_INDEX = Math.floor(n / 2);
   const stageRef = useRef<HTMLDivElement>(null);
   const itemEls = useRef<(HTMLDivElement | null)[]>([]);
   const shadowEls = useRef<(HTMLDivElement | null)[]>([]);

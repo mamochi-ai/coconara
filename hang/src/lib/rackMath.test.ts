@@ -105,9 +105,10 @@ describe('コーデラック', () => {
 });
 
 describe('商品データ', () => {
-  it('8着・IDが重複しない・輪郭の違う種類が混ざる・表示の調整値が正しい範囲', () => {
-    expect(PRODUCTS.length).toBe(8);
-    expect(new Set(PRODUCTS.map((p) => p.id)).size).toBe(8);
+  it('8着程度・IDが重複しない・輪郭の違う種類が混ざる・表示の調整値が正しい範囲', () => {
+    expect(PRODUCTS.length).toBeGreaterThanOrEqual(8);
+    expect(PRODUCTS.length).toBeLessThanOrEqual(10);
+    expect(new Set(PRODUCTS.map((p) => p.id)).size).toBe(PRODUCTS.length);
     expect(new Set(PRODUCTS.map((p) => p.category)).size).toBeGreaterThanOrEqual(6);
     expect(PRODUCTS.some((p) => p.hanger === 'clip')).toBe(true);
     for (const p of PRODUCTS) {
@@ -119,5 +120,15 @@ describe('商品データ', () => {
       expect(p.aspect).toBeGreaterThan(0.2);
       expect(p.name && p.category && p.color && p.description).toBeTruthy();
     }
+  });
+});
+
+describe('写真素材', () => {
+  it('ハンガーが写っている画像は hanger: none（コードでハンガーを描かない）、フックの位置は画像の上端付近', () => {
+    const coat = PRODUCTS.find((p) => p.id === 'camel-chester-coat')!;
+    expect(coat.hanger).toBe('none');
+    expect(coat.image.endsWith('.webp')).toBe(true);
+    expect(coat.anchor.y).toBeLessThan(0.05);
+    expect(coat.aspect).toBeCloseTo(810 / 1518, 4);
   });
 });

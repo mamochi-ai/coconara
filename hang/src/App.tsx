@@ -40,7 +40,7 @@ export default function App() {
   const rack = useRef<RackHandle>(null);
 
   const [selected, setSelected] = useState<number | null>(null);
-  const [center, setCenter] = useState(3);
+  const [center, setCenter] = useState(Math.floor(PRODUCTS.length / 2));
   const [coord, setCoord] = useState<string[]>(() => sanitizeCoord(readJSON<unknown>(KEYS.coord, []), ids, COORD_LIMIT));
   const [coordSaved, setCoordSaved] = useState(true);
   const [drawer, setDrawer] = useState(false);

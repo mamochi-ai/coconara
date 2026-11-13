@@ -92,6 +92,22 @@ export const PRODUCTS: Product[] = [
     sway: 0.9,
   },
   {
+    // 写真素材（背景を取り除いた画像。木製ハンガーとフックが写っているため hanger: 'none'）
+    id: 'camel-chester-coat',
+    name: 'ウールメルトン チェスターコート',
+    category: 'コート',
+    color: 'キャメル',
+    swatch: '#B58A63',
+    description: '肩に沿うすっきりとしたシルエットに、ふくらみのあるウールメルトン。膝下まで届く丈で、ニットにもジャケットにも重ねられます。',
+    image: garment('chester-coat.webp'),
+    hanger: 'none',
+    // フックの内側（レールが通る位置）。切り抜いた画像 810×1518 px の (391, 19) 付近
+    anchor: { x: 0.4827, y: 0.0125 },
+    aspect: 810 / 1518,
+    scale: 1.24,
+    sway: 0.5,
+  },
+  {
     id: 'mock-cardigan',
     name: 'ミドルゲージ Vネックカーディガン',
     category: 'ニット',

@@ -30,6 +30,9 @@ async function check(name, fn) {
 const assert = (c, m) => { if (!c) throw new Error(m); };
 const browser = await chromium.launch();
 
+// 商品数と、最初に中央に来る服（真ん中）
+const N = 9;
+const MID = Math.floor(N / 2);
 const IPAD_L = { width: 1180, height: 820 };
 const IPAD_P = { width: 820, height: 1180 };
 const PHONE = { width: 390, height: 844 };
@@ -77,20 +80,24 @@ async function tapItem(p, id) {
   await p.mouse.click(b.x + b.width / 2, b.y + b.height * 0.55);
 }
 
-await check('1. 初期表示：8着がハンガーで1本のレールに並び、フックがレールに掛かる。隣と少し重なる', async () => {
+await check('1. 初期表示：服がハンガーで1本のレールに並び、フックがレールに掛かる。隣と少し重なる', async () => {
   const p = await open(IPAD_L);
-  assert((await p.locator('.item').count()) === 8, '8着');
+  assert((await p.locator('.item').count()) === N, `${N}着`);
   const rail = await p.locator('.rail').boundingBox();
-  const hooks = await p.$$eval('.item .hanger-hook', (els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ top: r.top, bottom: r.bottom })));
-  assert(hooks.length === 8, 'フック8本');
   const railMid = rail.y + rail.height / 2;
-  // 中央付近のフックの頂点がレールの位置にある（±8px）
-  const center = (await rects(p))[3];
-  const ch = hooks[3];
-  assert(Math.abs(ch.top - (rail.y - 2)) < 12 && ch.bottom > railMid, `フックとレール ${JSON.stringify({ ch, rail })}`);
+  // コードで描いたフック（写真のハンガーを使う服を除く）は、頂点がレールの上、下端がレールより下
+  const hooks = await p.$$eval('.item .hanger-hook', (els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ top: r.top, bottom: r.bottom })));
+  assert(hooks.length === N - 1, `コードで描いたフック ${hooks.length}`);
+  const center = (await rects(p))[MID];
+  const trHook = await p.$eval('.item[data-id="wide-trousers"] .hanger-hook', (e) => { const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; });
+  assert(Math.abs(trHook.top - (rail.y - 2)) < 12 && trHook.bottom > railMid, `フックとレール ${JSON.stringify({ trHook, rail })}`);
+  // 写真のコート：画像に写っているフックの位置（anchor）がレールに合う
+  const coat = await p.$eval('.item[data-id="camel-chester-coat"] .g-img', (e) => { const r = e.getBoundingClientRect(); return { top: r.top, h: r.height }; });
+  assert(Math.abs(coat.top + coat.h * 0.0125 - railMid) < 4, `写真のフックとレール ${JSON.stringify({ coat, railMid })}`);
+  assert((await p.locator('.item[data-id="camel-chester-coat"] .g-hanger').count()) === 0, '写真のハンガーと二重にしない');
   const r = await rects(p);
-  const gap = r[4].x - r[3].x;
-  const imgW = await p.$eval('.item[data-id="wide-trousers"] .g-img', (e) => e.getBoundingClientRect().width);
+  const gap = r[MID + 1].x - r[MID].x;
+  const imgW = await p.$eval('.item[data-id="camel-chester-coat"] .g-img', (e) => e.getBoundingClientRect().width);
   assert(gap < imgW, `重なり ${gap} < ${imgW}`);
   assert(center.x > IPAD_L.width * 0.4 && center.x < IPAD_L.width * 0.6, '中央の服');
   const kinds = await p.$$eval('.item', (els) => els.map((e) => e.dataset.id));
@@ -102,11 +109,11 @@ await check('1. 初期表示：8着がハンガーで1本のレールに並び�
 
 await check('2. 左右ドラッグで移動し、離すと近くの服に収まる。ボタン・端の抵抗', async () => {
   const p = await open(IPAD_L);
-  assert((await counter(p)) === '4 / 8', await counter(p));
+  assert((await counter(p)) === `${MID + 1} / ${N}`, await counter(p));
   await drag(p, -300);
   await settle(p);
   const c1 = await counter(p);
-  assert(c1 !== '4 / 8', `移動 ${c1}`);
+  assert(c1 !== `${MID + 1} / ${N}`, `移動 ${c1}`);
   // 収まった位置では、中央の服がちょうど中央
   const st = await p.locator('.stage').boundingBox();
   const r = await rects(p);
@@ -114,11 +121,11 @@ await check('2. 左右ドラッグで移動し、離すと近くの服に収ま�
   assert(Math.abs(r[idx].x - (st.x + st.width / 2)) < 3, `中央に収まる ${r[idx].x}`);
   await p.click('button[aria-label="前の服へ"]');
   await settle(p);
-  assert((await counter(p)) === `${idx} / 8`, `ボタン ${await counter(p)}`);
+  assert((await counter(p)) === `${idx} / ${N}`, `ボタン ${await counter(p)}`);
   // 端を越えても壊れない（左端で右へ大きく引っ張る）
   for (let i = 0; i < 4; i++) await drag(p, 600);
   await settle(p);
-  assert((await counter(p)) === '1 / 8', `端 ${await counter(p)}`);
+  assert((await counter(p)) === `1 / ${N}`, `端 ${await counter(p)}`);
   assert(await p.locator('button[aria-label="前の服へ"]').isDisabled(), '端で前ボタン無効');
   await p.context().close();
 });
@@ -189,14 +196,14 @@ await check('6. 選択・解除を連続して素早く操作しても位置が�
   const before = await rects(p);
   const ids = await p.$$eval('.item', (els) => els.map((e) => e.dataset.id));
   for (let i = 0; i < 6; i++) {
-    await tapItem(p, ids[3 + (i % 2)]);
+    await tapItem(p, ids[MID + (i % 2)]);
     await p.waitForTimeout(60);
     await p.keyboard.press('Escape');
     await p.waitForTimeout(40);
   }
-  await tapItem(p, ids[2]);
+  await tapItem(p, ids[MID - 1]); // ワイドトラウザー
   await p.waitForTimeout(80);
-  await tapItem(p, ids[4]); // 選んでいる間に別の服 → 切り替え
+  await tapItem(p, ids[MID + 1]); // 選んでいる間に別の服 → 切り替え
   await settle(p);
   assert(await detailOpen(p) && (await p.textContent('.detail-name')).replace(/\s/g, '').includes('ワイドトラウザー') === false, '切り替え');
   await p.click('.close-x');
@@ -220,17 +227,17 @@ await check('7. コーデラック：追加・重複防止・上限3着・個別
     await settle(p);
     return { text, disabled };
   };
-  await addFromRack(ids[3]);
+  await addFromRack(ids[MID]);
   assert((await p.textContent('.coord-count')) === '1/3', '1/3');
-  const dup = await addFromRack(ids[3]);
+  const dup = await addFromRack(ids[MID]);
   assert(dup.disabled && dup.text.includes('掛けています'), '重複を防ぐ');
   await p.click('button[aria-label="次の服へ"]'); await settle(p);
-  await addFromRack(ids[4]);
+  await addFromRack(ids[MID + 1]);
   await p.click('button[aria-label="前の服へ"]'); await p.click('button[aria-label="前の服へ"]'); await settle(p);
-  await addFromRack(ids[2]);
+  await addFromRack(ids[MID - 1]);
   assert((await p.textContent('.coord-count')) === '3/3', '3/3');
   await p.click('button[aria-label="前の服へ"]'); await settle(p);
-  const full = await addFromRack(ids[1]);
+  const full = await addFromRack(ids[MID - 2]);
   assert(full.disabled && full.text.includes('3着まで'), '上限');
   // 引き出してハンガーで並んでいるか
   await p.click('.coord-tab');
@@ -266,7 +273,7 @@ await check('8. キーボード：←→で移動、Enter で手前に、Escape 
   await p.focus('.stage');
   await p.keyboard.press('ArrowRight');
   await settle(p);
-  assert((await counter(p)) === '5 / 8', await counter(p));
+  assert((await counter(p)) === `${MID + 2} / ${N}`, await counter(p));
   await p.keyboard.press('Enter');
   await settle(p);
   assert(await detailOpen(p), 'Enter');
@@ -305,7 +312,7 @@ await check('10. 画像の読み込みに失敗しても画面が壊れない（
   const p = await open(IPAD_L, { breakImage: 'trousers.svg' });
   await p.waitForSelector('.item[data-id="wide-trousers"] .g-fallback');
   assert((await p.locator('.g-fallback').count()) === 1, '代わりの輪郭');
-  assert((await p.locator('.g-img').count()) === 7, 'ほかは表示');
+  assert((await p.locator('.g-img').count()) === N - 1, 'ほかは表示');
   await tapItem(p, 'wide-trousers');
   await settle(p);
   assert(await detailOpen(p), '選択もできる');
