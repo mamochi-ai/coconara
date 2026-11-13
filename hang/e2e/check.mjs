@@ -319,7 +319,7 @@ await check('11. 動きを減らす設定：揺れを止め、横向きを弱め
   await drag(p, -260);
   await p.waitForTimeout(60);
   const tr = await p.$$eval('.item', (els) => els.map((e) => e.style.transform));
-  assert(tr.every((t) => /rotateZ\(0\.000deg\)/.test(t)), `揺れなし ${tr[3]}`);
+  assert(tr.every((t) => /rotateZ\(-?0(\.0+)?deg\)/.test(t)), `揺れなし ${tr[3]}`);
   await settle(p);
   await p.context().close();
 });
