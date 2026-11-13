@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600">
+  <!-- 仮素材：ケーブルニット（服のみ） -->
+  <defs>
+    <linearGradient id="f" x1="0" x2="1"><stop offset="0" stop-color="#E9DFCB"/><stop offset=".55" stop-color="#DACCB1"/><stop offset="1" stop-color="#C4B494"/></linearGradient>
+    <pattern id="rib" width="9" height="40" patternUnits="userSpaceOnUse"><rect width="9" height="40" fill="#D3C4A6"/><rect width="4" height="40" fill="#C6B593"/></pattern>
+  </defs>
+  <path d="M84 62 C54 76 40 102 36 138 L22 408 Q46 420 76 414 L90 166 Z" fill="url(#f)" stroke="#AE9D7C" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M316 62 C346 76 360 102 364 138 L378 408 Q354 420 324 414 L310 166 Z" fill="url(#f)" stroke="#AE9D7C" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M22 408 L20 446 Q47 458 78 451 L76 414 Q46 420 22 408 Z" fill="url(#rib)" stroke="#AE9D7C" stroke-width="2"/>
+  <path d="M378 408 L380 446 Q353 458 322 451 L324 414 Q354 420 378 408 Z" fill="url(#rib)" stroke="#AE9D7C" stroke-width="2"/>
+  <path d="M142 34 Q200 64 258 34 L318 58 C334 66 340 82 338 104 L332 446 L68 446 L62 104 C60 82 66 66 82 58 Z" fill="url(#f)" stroke="#AE9D7C" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M68 446 L332 446 L330 488 Q200 500 70 488 Z" fill="url(#rib)" stroke="#AE9D7C" stroke-width="2"/>
+  <path d="M142 34 Q200 64 258 34 L250 26 Q200 52 150 26 Z" fill="url(#rib)" stroke="#AE9D7C" stroke-width="2"/>
+  <g fill="none" stroke="#B9A780" stroke-width="5" stroke-linecap="round" opacity=".85">
+    <path d="M178 80 C160 104 196 120 178 144 C160 168 196 184 178 208 C160 232 196 248 178 272 C160 296 196 312 178 336 C160 360 196 376 178 400 C160 424 196 432 184 444"/>
+    <path d="M222 80 C240 104 204 120 222 144 C240 168 204 184 222 208 C240 232 204 248 222 272 C240 296 204 312 222 336 C240 360 204 376 222 400 C240 424 204 432 216 444"/>
+  </g>
+  <path d="M120 90 V440 M280 90 V440 M100 120 V436 M300 120 V436" stroke="#C3B291" stroke-width="3" opacity=".7"/>
+</svg>

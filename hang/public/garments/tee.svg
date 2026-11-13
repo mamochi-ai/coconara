@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600">
+  <!-- 仮素材：ヘビーウェイトTシャツ（服のみ） -->
+  <defs>
+    <linearGradient id="f" x1="0" x2="1"><stop offset="0" stop-color="#C47A5A"/><stop offset=".55" stop-color="#B26A4B"/><stop offset="1" stop-color="#97553A"/></linearGradient>
+  </defs>
+  <path d="M150 36 Q200 58 250 36 L320 60 L368 148 L330 172 L310 138 L306 424 Q302 438 288 438 L112 438 Q98 438 94 424 L90 138 L70 172 L32 148 L80 60 Z" fill="url(#f)" stroke="#7A4330" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M150 36 Q200 58 250 36 L242 28 Q200 48 158 28 Z" fill="#A45F43" stroke="#7A4330" stroke-width="2"/>
+  <path d="M70 172 L32 148 M330 172 L368 148" stroke="#7A4330" stroke-width="2"/>
+  <path d="M42 156 L76 176 M358 156 L324 176" stroke="#7A4330" stroke-width="1.5" opacity=".6"/>
+  <path d="M96 420 L304 420" stroke="#7A4330" stroke-width="1.5" opacity=".6"/>
+  <path d="M130 160 Q140 300 124 420 M272 170 Q262 300 278 420" stroke="#D08A6B" stroke-width="2" fill="none" opacity=".5"/>
+</svg>

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600">
+  <!-- 仮素材：モックカーディガン（服のみ） -->
+  <defs>
+    <linearGradient id="f" x1="0" x2="1"><stop offset="0" stop-color="#8E9466"/><stop offset=".55" stop-color="#7C8256"/><stop offset="1" stop-color="#666B44"/></linearGradient>
+    <pattern id="rib" width="8" height="40" patternUnits="userSpaceOnUse"><rect width="8" height="40" fill="#747A4F"/><rect width="3" height="40" fill="#676C45"/></pattern>
+  </defs>
+  <path d="M82 60 C54 74 42 98 38 132 L28 396 Q52 406 80 400 L92 160 Z" fill="url(#f)" stroke="#4D5133" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M318 60 C346 74 358 98 362 132 L372 396 Q348 406 320 400 L308 160 Z" fill="url(#f)" stroke="#4D5133" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M28 396 L26 430 Q53 440 82 434 L80 400 Q52 406 28 396 Z" fill="url(#rib)" stroke="#4D5133" stroke-width="2"/>
+  <path d="M372 396 L374 430 Q347 440 318 434 L320 400 Q348 406 372 396 Z" fill="url(#rib)" stroke="#4D5133" stroke-width="2"/>
+  <path d="M146 32 L200 210 L254 32 L318 58 C334 66 340 82 338 104 L333 452 L67 452 L62 104 C60 82 66 66 82 58 Z" fill="url(#f)" stroke="#4D5133" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M146 32 L200 210 L254 32 L240 28 L200 176 L160 28 Z" fill="#5F6440" opacity=".55"/>
+  <path d="M67 452 L333 452 L332 490 Q200 500 68 490 Z" fill="url(#rib)" stroke="#4D5133" stroke-width="2"/>
+  <path d="M146 32 L192 200 L192 492 M254 32 L208 200 L208 492" stroke="#4D5133" stroke-width="2" fill="none"/>
+  <path d="M192 210 L192 492 L208 492 L208 210 Z" fill="url(#rib)" opacity=".9"/>
+  <g fill="#E8E1CF" stroke="#4D5133" stroke-width="1.5"><circle cx="200" cy="236" r="6"/><circle cx="200" cy="292" r="6"/><circle cx="200" cy="348" r="6"/><circle cx="200" cy="404" r="6"/><circle cx="200" cy="460" r="6"/></g>
+  <path d="M112 140 V440 M288 140 V440" stroke="#6C7148" stroke-width="3" opacity=".6"/>
+</svg>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600">
+  <!-- 仮素材：ワイドパンツ（服のみ。クリップハンガーで吊る想定） -->
+  <defs>
+    <linearGradient id="f" x1="0" x2="1"><stop offset="0" stop-color="#C79B6B"/><stop offset=".5" stop-color="#B78A5B"/><stop offset="1" stop-color="#9D7448"/></linearGradient>
+  </defs>
+  <path d="M120 46 L280 46 L310 588 Q260 596 212 588 L200 182 L188 588 Q140 596 90 588 Z" fill="url(#f)" stroke="#7E5C38" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="116" y="18" width="168" height="32" rx="4" fill="#A97E51" stroke="#7E5C38" stroke-width="2"/>
+  <g fill="#A97E51" stroke="#7E5C38" stroke-width="2"><rect x="136" y="14" width="10" height="40" rx="2"/><rect x="254" y="14" width="10" height="40" rx="2"/><rect x="195" y="14" width="10" height="40" rx="2"/></g>
+  <path d="M200 50 Q206 110 200 182" stroke="#7E5C38" stroke-width="2" fill="none"/>
+  <path d="M152 70 L140 588 M248 70 L260 588" stroke="#D2AA7C" stroke-width="2.5" fill="none" opacity=".8"/>
+  <path d="M128 62 Q150 82 172 64 M228 64 Q250 82 272 62" stroke="#7E5C38" stroke-width="2" fill="none"/>
+</svg>

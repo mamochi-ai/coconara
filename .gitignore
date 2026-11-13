@@ -2,3 +2,4 @@ node_modules/
 test-output/
 # 購入者用の配布物（公開しない）
 build/
+hang/e2e-output/

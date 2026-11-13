@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600">
+  <!-- 仮素材：プリーツスカート（服のみ。クリップハンガーで吊る想定） -->
+  <defs>
+    <linearGradient id="f" x1="0" x2="1"><stop offset="0" stop-color="#3E4A68"/><stop offset=".55" stop-color="#323C57"/><stop offset="1" stop-color="#252D43"/></linearGradient>
+  </defs>
+  <path d="M138 46 L262 46 L336 444 Q200 466 64 444 Z" fill="url(#f)" stroke="#1A2031" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="134" y="18" width="132" height="32" rx="4" fill="#2C3550" stroke="#1A2031" stroke-width="2"/>
+  <g stroke="#4B5878" stroke-width="2.5" fill="none">
+    <path d="M152 50 L96 448"/><path d="M168 50 L124 452"/><path d="M184 50 L154 455"/><path d="M200 50 L186 456"/><path d="M216 50 L218 456"/><path d="M232 50 L250 455"/><path d="M248 50 L280 452"/>
+  </g>
+  <g stroke="#1A2031" stroke-width="2" fill="none" opacity=".6">
+    <path d="M160 50 L110 450"/><path d="M192 50 L170 456"/><path d="M224 50 L234 456"/><path d="M256 50 L298 450"/>
+  </g>
+</svg>

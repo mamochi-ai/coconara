@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600">
+  <!-- 仮素材：テーラードジャケット（服のみ） -->
+  <defs>
+    <linearGradient id="f" x1="0" x2="1"><stop offset="0" stop-color="#55585E"/><stop offset=".5" stop-color="#43464B"/><stop offset="1" stop-color="#303236"/></linearGradient>
+    <linearGradient id="l" x1="0" x2="1"><stop offset="0" stop-color="#4C4F55"/><stop offset="1" stop-color="#383A3F"/></linearGradient>
+  </defs>
+  <path d="M68 58 C42 70 32 98 30 134 L24 476 Q48 486 76 480 L90 156 Z" fill="url(#l)" stroke="#232427" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M332 58 C358 70 368 98 370 134 L376 476 Q352 486 324 480 L310 156 Z" fill="url(#l)" stroke="#232427" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M140 30 L200 58 L260 30 L330 54 C345 60 349 74 347 98 L341 518 Q339 532 323 534 L77 534 Q61 532 59 518 L53 98 C51 74 55 60 70 54 Z" fill="url(#f)" stroke="#232427" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M140 30 L200 58 L197 318 L152 206 L118 126 L138 96 L124 70 Z" fill="#4E5157" stroke="#232427" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M260 30 L200 58 L203 318 L248 206 L282 126 L262 96 L276 70 Z" fill="#3A3D42" stroke="#232427" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M138 96 L124 70 M262 96 L276 70" stroke="#232427" stroke-width="2"/>
+  <path d="M197 318 Q199 430 192 534" stroke="#232427" stroke-width="2" fill="none"/>
+  <g fill="#1D1E21"><circle cx="212" cy="352" r="7"/><circle cx="212" cy="420" r="7"/></g>
+  <g fill="#3A3D42" stroke="#232427" stroke-width="2"><rect x="86" y="400" width="80" height="18" rx="3"/><rect x="234" y="400" width="80" height="18" rx="3"/></g>
+  <path d="M240 178 L288 172" stroke="#232427" stroke-width="3"/>
+  <path d="M110 240 Q118 360 106 500 M296 250 Q288 370 300 500" stroke="#5E6168" stroke-width="2" fill="none" opacity=".5"/>
+</svg>

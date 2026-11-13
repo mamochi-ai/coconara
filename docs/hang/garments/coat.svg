@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600">
+  <!-- 仮素材：トレンチコート（服のみ。丈が長い） -->
+  <defs>
+    <linearGradient id="f" x1="0" x2="1"><stop offset="0" stop-color="#D8C4A0"/><stop offset=".55" stop-color="#C8B18A"/><stop offset="1" stop-color="#AF976F"/></linearGradient>
+  </defs>
+  <path d="M70 52 C44 64 34 90 32 124 L26 438 Q50 448 78 442 L90 146 Z" fill="url(#f)" stroke="#8C7651" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M330 52 C356 64 366 90 368 124 L374 438 Q350 448 322 442 L310 146 Z" fill="url(#f)" stroke="#8C7651" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M28 396 L76 404 M372 396 L324 404" stroke="#8C7651" stroke-width="7" stroke-linecap="round"/>
+  <path d="M142 24 L200 50 L258 24 L330 50 C345 56 350 70 348 92 L352 584 Q300 596 200 592 Q100 596 48 584 L52 92 C50 70 55 56 70 50 Z" fill="url(#f)" stroke="#8C7651" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M142 24 L200 50 L170 170 L118 112 L136 70 Z" fill="#D2BD97" stroke="#8C7651" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M258 24 L200 50 L230 170 L282 112 L264 70 Z" fill="#BEA67E" stroke="#8C7651" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M232 170 L230 588" stroke="#8C7651" stroke-width="2"/>
+  <g fill="#5E4B30"><circle cx="252" cy="196" r="7"/><circle cx="252" cy="250" r="7"/><circle cx="168" cy="196" r="7"/><circle cx="168" cy="250" r="7"/><circle cx="252" cy="330" r="7"/><circle cx="168" cy="330" r="7"/></g>
+  <path d="M50 282 L350 282 L350 304 L50 304 Z" fill="#BCA47B" stroke="#8C7651" stroke-width="2"/>
+  <rect x="186" y="278" width="30" height="30" rx="3" fill="none" stroke="#5E4B30" stroke-width="4"/>
+  <path d="M80 60 L132 76 M320 60 L268 76" stroke="#8C7651" stroke-width="6" stroke-linecap="round"/>
+  <path d="M100 330 Q110 460 92 580 M300 330 Q292 460 310 580 M150 320 Q156 450 146 588" stroke="#A58D64" stroke-width="2" fill="none" opacity=".55"/>
+</svg>

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600">
+  <!-- 仮素材：オックスフォードシャツ（服のみ。ハンガーはコードで描画） -->
+  <defs>
+    <linearGradient id="f" x1="0" x2="1"><stop offset="0" stop-color="#F9FAFA"/><stop offset=".55" stop-color="#ECEFF1"/><stop offset="1" stop-color="#D9DFE2"/></linearGradient>
+    <linearGradient id="s" x1="0" x2="1"><stop offset="0" stop-color="#E6EAEC"/><stop offset="1" stop-color="#CDD4D8"/></linearGradient>
+  </defs>
+  <path d="M96 64 C70 72 56 92 52 124 L36 336 Q54 346 76 341 L100 152 Z" fill="url(#s)" stroke="#B7C0C5" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M304 64 C330 72 344 92 348 124 L364 336 Q346 346 324 341 L300 152 Z" fill="url(#s)" stroke="#B7C0C5" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M36 336 L34 362 Q55 371 78 366 L76 341 Q54 346 36 336 Z" fill="#E4E8EA" stroke="#B7C0C5" stroke-width="2"/>
+  <path d="M364 336 L366 362 Q345 371 322 366 L324 341 Q346 346 364 336 Z" fill="#E4E8EA" stroke="#B7C0C5" stroke-width="2"/>
+  <path d="M152 30 Q200 46 248 30 L298 52 C311 58 316 70 314 92 L307 538 Q306 556 290 560 Q248 546 200 551 Q152 546 110 560 Q94 556 93 538 L86 92 C84 70 89 58 102 52 Z" fill="url(#f)" stroke="#B7C0C5" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M199 50 V548 M213 52 V548" stroke="#C6CDD1" stroke-width="2" fill="none"/>
+  <g fill="#FFFFFF" stroke="#AEB7BC" stroke-width="1.6">
+    <circle cx="206" cy="96" r="5"/><circle cx="206" cy="160" r="5"/><circle cx="206" cy="224" r="5"/><circle cx="206" cy="288" r="5"/><circle cx="206" cy="352" r="5"/><circle cx="206" cy="416" r="5"/><circle cx="206" cy="480" r="5"/>
+  </g>
+  <path d="M152 30 L198 36 L186 76 Q164 62 152 30 Z" fill="#F6F7F8" stroke="#AEB7BC" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M248 30 L202 36 L214 76 Q236 62 248 30 Z" fill="#F1F3F4" stroke="#AEB7BC" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="236" y="126" width="48" height="56" rx="4" fill="none" stroke="#C3CACE" stroke-width="2"/>
+  <path d="M130 200 Q140 330 128 470 M276 220 Q266 340 280 470 M160 520 Q200 530 240 520" stroke="#B9C2C7" stroke-width="2" fill="none" opacity=".45"/>
+</svg>
