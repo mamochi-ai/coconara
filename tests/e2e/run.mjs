@@ -63,12 +63,21 @@ const IPAD_L = { width: 1180, height: 820 };
 const IPAD_P = { width: 820, height: 1180 };
 const PHONE = { width: 390, height: 844 };
 
+/** 注文一覧の「架空のサンプルを追加」で、サンプルの注文を追加して開く（既存の注文は残る） */
 async function loadSample(page) {
-  await page.tap('#btnSample');
-  const modal = page.locator('.modal');
-  if (await modal.count()) await page.tap('.modal-actions .btn-danger');
+  await page.tap('#btnOrders');
+  await page.tap('#olSample');
   await page.waitForFunction(() => window.__katachi.state.doc.isSample);
 }
+/** 注文一覧の「新しい注文を作る」 */
+async function newOrderFromList(page) {
+  await page.tap('#btnOrders');
+  await page.tap('#olNew');
+  await page.waitForFunction(() => window.__katachi.state.entry && !window.__katachi.state.doc.isSample && window.__katachi.state.doc.current.orderNo === '');
+}
+/** 端末に保存された注文一覧 */
+const storedLib = (page, key = 'katachi-awase:orders') => page.evaluate((k) => JSON.parse(localStorage.getItem(k)), key);
+const storedActive = async (page, key) => { const l = await storedLib(page, key); return l.orders.find((o) => o.id === l.active_id).data; };
 const changesText = (page) => page.$$eval('.list-block.changes .spec-changes li', (els) => els
   .filter((e) => e.offsetParent !== null).map((e) => e.textContent.replace(/^変更/, '').trim()));
 const visibleText = (page, sel) => page.$$eval(sel, (els) => els.filter((e) => e.offsetParent !== null).map((e) => e.textContent).join('\n'));
@@ -140,7 +149,7 @@ await check('5. 編集しても比較元は変わらない', async () => {
   assert(base === '30', `比較元 ${base}`);
   const ch = await changesText(page);
   assert(ch.includes('本体高さ：30 → 33cm'), JSON.stringify(ch));
-  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('katachi-awase:doc')).data.baseline.dims.height);
+  const stored = (await storedActive(page)).baseline.dims.height;
   assert(stored === '30', '自動保存でも比較元は不変');
 });
 
@@ -240,7 +249,7 @@ await check('8. お客様用／作家用のPNG（日本語・寸法線・変更�
   assert(mk.imgs.reduce((a, x) => a + x.h, 0) > cu.imgs.reduce((a, x) => a + x.h, 0), '作家用の方が詳しい');
   // 設定は保存され、比較元は変わらない
   await page.waitForTimeout(500);
-  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('katachi-awase:doc')).data);
+  const saved = await storedActive(page);
   assert(saved.output.audience === 'maker', '出力設定の保存');
   assert(saved.baseline.lining === 'none', '比較元は不変');
   await makePngs(page, { audience: 'customer' });
@@ -266,27 +275,36 @@ await check('7b. 長い注文メモ・確認事項は複数枚に分け、各画
 });
 
 let backupPath;
-await check('9. JSONで比較元を含めて復元できる', async () => {
+await check('9. この注文を書き出し、新しい注文として追加で復元できる（変更前・版番号を維持）', async () => {
   await setField(page, '#f-orderNo', 'TEST-77');
+  const pick = (d) => JSON.stringify({ current: d.current, baseline: d.baseline, version: d.version, baselineVersion: d.baselineVersion });
   const before = await page.evaluate(() => JSON.stringify(window.__katachi.state.doc));
+  const n0 = await page.evaluate(() => window.__katachi.state.lib.orders.length);
   await page.tap('#btnData');
-  const [dl] = await Promise.all([page.waitForEvent('download'), page.tap('#dExport')]);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.tap('#dExportOne')]);
+  assert(/^katachi_order_TEST-77_v2_\d{8}\.json$/.test(dl.suggestedFilename()), dl.suggestedFilename());
   backupPath = `${OUT}backup.json`;
   await dl.saveAs(backupPath);
-  await page.tap('.modal-actions .btn');
+  await page.tap('.modal [data-close]');
   const json = JSON.parse(await readFile(backupPath, 'utf8'));
-  assert(json.schema_version === 2 && json.data.output && json.data.baseline && json.data.baseline_version === 1, 'JSONの内容');
-  // 消去してから復元
-  await page.tap('#btnData');
-  await page.tap('#dNew');
-  await page.tap('.modal-actions .btn-danger');
-  assert(await page.evaluate(() => window.__katachi.state.doc.baseline === null), '消去された');
+  assert(json.format === 'katachi-awase/order' && json.schema_version === 3 && json.order.data.baseline && json.order.data.baseline_version === 1, 'JSONの内容');
+  // 読み込み：内容の確認が出て、キャンセルすると何も変わらない
   await page.tap('#btnData');
   await page.setInputFiles('#fileInput', backupPath);
-  await page.waitForSelector('.modal h2:text("バックアップから復元")');
-  await page.tap('.modal-actions .btn-danger');
+  await page.waitForSelector('.modal h2:text("バックアップから追加")');
+  let t = await page.textContent('.modal');
+  assert(t.includes('1件用のバックアップ') && t.includes('1件') && t.includes('新しい注文として追加') && t.includes('同じ内容の注文が2件'), t);
+  await page.tap('.modal-actions .btn:not(.btn-primary)');
+  assert((await page.evaluate(() => window.__katachi.state.lib.orders.length)) === n0, 'キャンセルで変化なし');
+  // 追加
+  await page.tap('#btnData');
+  await page.setInputFiles('#fileInput', backupPath);
+  await page.waitForSelector('.modal h2:text("バックアップから追加")');
+  await page.tap('.modal-actions .btn-primary');
   const after = await page.evaluate(() => JSON.stringify(window.__katachi.state.doc));
-  assert(after === before, '復元後の内容が一致');
+  assert(pick(JSON.parse(after)) === pick(JSON.parse(before)), '追加した注文の内容が一致');
+  const ids = await page.evaluate(() => window.__katachi.state.lib.orders.map((o) => o.id));
+  assert(ids.length === n0 + 1 && new Set(ids).size === ids.length, '新しい内部IDで追加');
   assert((await page.inputValue('#f-orderNo')) === 'TEST-77', '入力欄に反映');
 });
 
@@ -297,18 +315,18 @@ await check('10. 壊れたJSONを読み込んでも既存内容が消えない',
   await page.setInputFiles('#fileInput', broken);
   await page.waitForSelector('.modal h2:text("読み込めませんでした")');
   const t = await page.textContent('.modal');
-  assert(t.includes('現在の内容はそのまま'), t);
+  assert(t.includes('今ある注文はそのまま'), t);
   await page.tap('.modal-actions .btn');
   const wrong = `${OUT}wrong-values.json`;
   const j = JSON.parse(await readFile(backupPath, 'utf8'));
-  j.data.current.dims.height = 'abc';
+  j.order.data.current.dims.height = 'abc';
   await writeFile(wrong, JSON.stringify(j));
   await page.setInputFiles('#fileInput', wrong);
   await page.waitForSelector('.modal h2:text("読み込めませんでした")');
   await page.tap('.modal-actions .btn');
   const after = await page.evaluate(() => JSON.stringify(window.__katachi.state.doc));
   assert(after === before, '内容が保持されている');
-  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('katachi-awase:doc')).data.current.orderNo);
+  const stored = (await storedActive(page)).current.orderNo;
   assert(stored === 'TEST-77', '保存データも保持');
 });
 
@@ -322,8 +340,9 @@ await check('11. 旧形式（schema 1）のJSONを読み込める', async () => 
   const fixture = fileURLToPath(new URL('../fixtures/backup-v1.json', import.meta.url));
   const old = JSON.parse(await readFile(fixture, 'utf8'));
   await page.setInputFiles('#fileInput', fixture);
-  await page.waitForSelector('.modal h2:text("バックアップから復元")');
-  await page.tap('.modal-actions .btn-danger');
+  await page.waitForSelector('.modal h2:text("バックアップから追加")');
+  assert((await page.textContent('.modal')).includes('以前のバージョンのバックアップ'), '旧形式と表示');
+  await page.tap('.modal-actions .btn-primary');
   const doc = await page.evaluate(() => window.__katachi.state.doc);
   assert(JSON.stringify(doc.baseline.dims) === JSON.stringify(old.data.baseline.dims), '比較元の寸法');
   assert(doc.baseline.lining === old.data.baseline.lining && doc.current.liningColor === 'navy', '仕様');
@@ -362,7 +381,7 @@ await check('ケース2・5：袋口幅だけの変更／比較元なしの初�
   const cu = await makePngs(p2, { audience: 'customer' });
   await savePngs('case2-customer', cu);
   assert(!cu.controls.find((c) => c.k === 'side').disabled && !cu.controls.find((c) => c.k === 'side').checked, '側面図は省略');
-  await p2.tap('#btnData'); await p2.tap('#dNew'); await p2.tap('.modal-actions .btn-danger');
+  await newOrderFromList(p2);
   for (const [k, v] of [['orderNo', 'NEW-01'], ['height', '28'], ['mouthWidth', '36'], ['gusset', '8'], ['handleHeight', '14']]) await p2.fill(`#f-${k}`, v);
   await tapRadio(p2, 'outerColor', 'navy');
   await tapRadio(p2, 'lining', 'undecided');
@@ -594,8 +613,9 @@ async function guideCheck(viewport) {
   const p = await newPage(viewport);
   const vp = p.viewportSize();
   const onScreen = async (loc) => { const b = await loc.boundingBox(); return !!b && b.y >= 0 && b.y + b.height <= vp.height && b.x >= 0 && b.x + b.width <= vp.width; };
-  // 空の状態：未入力一覧から入力欄へ移動できる
-  if (await p.locator('#tab-diagram').isVisible()) await p.tap('#tab-diagram');
+  // 新しい注文（空の状態）：未入力一覧から入力欄へ移動できる
+  await newOrderFromList(p);
+  await p.tap('#tab-diagram');
   await p.locator('#pane-diagram [data-goto="height"]').tap();
   await p.waitForTimeout(200);
   assert(await p.evaluate(() => document.activeElement && document.activeElement.id === 'f-height'), '一覧から本体高さの欄へ');
@@ -701,7 +721,7 @@ await check('P1. 体験版：初回の使い方・サンプル・体験版の表
   await p.tap('.modal [data-close]');
   // 保存場所は体験版用
   const keys = await p.evaluate(() => Object.keys(localStorage));
-  assert(keys.includes('katachi-awase:trial:doc') && !keys.includes('katachi-awase:doc'), JSON.stringify(keys));
+  assert(keys.includes('katachi-awase:trial:orders') && !keys.includes('katachi-awase:orders'), JSON.stringify(keys));
   assert(p.errors.length === 0, p.errors.join(' / '));
   await p.context().close();
 });
@@ -716,6 +736,8 @@ await check('P2. 同じドメインでも体験版と購入者用のデータが
   await closeGuide(p);
   assert(await p.isHidden('#trialBanner') && await p.isHidden('#editionBadge'), '購入者用に体験版表示なし');
   assert(await p.isHidden('#sampleBanner'), '購入者用は空の状態から');
+  assert(await p.isVisible('#emptyOrder'), '注文がないときの案内');
+  await p.tap('#emptyNew');
   await p.fill('#f-orderNo', 'REAL-100');
   await p.fill('#f-height', '28');
   await p.waitForTimeout(500);
@@ -738,39 +760,37 @@ await check('P2. 同じドメインでも体験版と購入者用のデータが
   assert(!isDark(e.top) && !isDark(e.bottom), `購入者用に帯なし ${JSON.stringify(e)}`);
   await p.tap('.modal [data-close]');
   const keys = await p.evaluate(() => Object.keys(localStorage).sort());
-  assert(JSON.stringify(keys.filter((k) => k.endsWith(':doc'))) === JSON.stringify(['katachi-awase:doc', 'katachi-awase:trial:doc']), JSON.stringify(keys));
+  assert(JSON.stringify(keys.filter((k) => k.endsWith(':orders'))) === JSON.stringify(['katachi-awase:orders', 'katachi-awase:trial:orders']), JSON.stringify(keys));
   assert(p.errors.length === 0, p.errors.join(' / '));
   await ctx.close();
 });
 
-await check('P3. 購入者用：使い方から新しい注文、消す前のバックアップ案内', async () => {
+await check('P3. 購入者用：初回は注文なし→使い方から新しい注文・サンプル。サンプルを試しても既存の注文を消さない', async () => {
   const p = await newPage(PHONE, { keepGuide: true });
   const acts = await p.$$eval('.modal-actions button', (els) => els.map((e) => e.textContent.trim()));
-  assert(acts.includes('架空のサンプルで試す') && acts.includes('新しい注文を始める'), JSON.stringify(acts));
+  assert(acts.includes('架空のサンプルで試す') && acts.includes('新しい注文を作る'), JSON.stringify(acts));
   const gt = await p.textContent('.modal');
-  assert(gt.includes('この端末のブラウザの中に保存') && gt.includes('バックアップを書き出す'), '保存とバックアップの案内');
+  assert(gt.includes('この端末のブラウザの中に保存') && gt.includes('全注文をまとめて書き出す') && gt.includes('注文一覧'), '保存・バックアップ・注文一覧の案内');
+  await p.getByRole('button', { name: '新しい注文を作る', exact: true }).tap();
+  await p.fill('#f-orderNo', 'REAL-200');
+  await p.fill('#f-height', '27');
+  // 「架空のサンプルで試す」は新しい注文として追加される
+  await p.tap('#btnHelp');
   await p.getByRole('button', { name: '架空のサンプルで試す', exact: true }).tap();
   await p.waitForSelector('#sampleBanner:not([hidden])');
-  // サンプルを消して始める（サンプルなのでバックアップは求めない）
-  await p.getByRole('button', { name: 'サンプルを消して新しい注文を始める' }).tap();
-  let t = await p.textContent('.modal');
-  assert(!t.includes('先にバックアップ'), 'サンプルにはバックアップ不要');
-  await p.locator('.modal-actions .btn-danger').tap();
-  assert(await p.isHidden('#sampleBanner') && (await p.inputValue('#f-height')) === '', '空の注文');
-  // 実際の内容があるときは、先にバックアップを選べる
-  await p.fill('#f-orderNo', 'REAL-200');
+  const lib = await storedLib(p);
+  assert(lib.orders.length === 2 && lib.orders.some((o) => o.data.current.orderNo === 'REAL-200' && o.data.current.dims.height === '27'), '既存の注文は残る');
+  // サンプル表示中の「新しい注文を作る」もサンプルを消さない
+  await p.getByRole('button', { name: '新しい注文を作る', exact: true }).tap();
+  assert((await storedLib(p)).orders.length === 3, '3件');
+  // 書き出し：1件用と全件用はファイル名で区別
   await p.tap('#btnData');
-  await p.tap('#dNew');
-  t = await p.textContent('.modal');
-  assert(t.includes('元に戻せません') && t.includes('先にバックアップを書き出す'), t);
-  const [dl] = await Promise.all([p.waitForEvent('download'), p.getByRole('button', { name: '先にバックアップを書き出す' }).tap()]);
-  assert(/^katachi_backup_REAL-200_v1\.json$/.test(dl.suggestedFilename()), dl.suggestedFilename());
-  const saved = JSON.parse(await readFile(await dl.path(), 'utf8'));
-  assert(saved.edition === 'full' && saved.data.current.orderNo === 'REAL-200', 'バックアップの中身');
-  // バックアップ後も確認が残り、キャンセルできる
-  await p.waitForSelector('.modal-actions .btn-danger');
-  await p.tap('.modal-actions .btn:not(.btn-danger):not(.btn-primary)');
-  assert((await p.inputValue('#f-orderNo')) === 'REAL-200', 'キャンセルで残る');
+  const [d1] = await Promise.all([p.waitForEvent('download'), p.tap('#dExportAll')]);
+  assert(/^katachi_all-orders_3_\d{8}\.json$/.test(d1.suggestedFilename()), d1.suggestedFilename());
+  const all = JSON.parse(await readFile(await d1.path(), 'utf8'));
+  assert(all.format === 'katachi-awase/orders' && all.schema_version === 3 && all.edition === 'full' && all.orders.length === 3, '全件用の中身');
+  const [d2] = await Promise.all([p.waitForEvent('download'), p.tap('#dExportOne')]);
+  assert(/^katachi_order_no-number_v1_\d{8}\.json$/.test(d2.suggestedFilename()), d2.suggestedFilename());
   assert(p.errors.length === 0, p.errors.join(' / '));
   await p.context().close();
 });
@@ -781,8 +801,8 @@ await check('P4. 旧形式のバックアップを購入者用・体験版の両
     const p = await newPage(IPAD_L, { url });
     await p.tap('#btnData');
     await p.setInputFiles('#fileInput', fixture);
-    await p.waitForSelector('.modal h2:text("バックアップから復元")');
-    await p.locator('.modal-actions .btn-danger').tap();
+    await p.waitForSelector('.modal h2:text("バックアップから追加")');
+    await p.locator('.modal-actions .btn-primary').tap();
     assert((await p.inputValue('#f-mouthWidth')) === '45', url);
     assert((await p.textContent('#orderMeta')).includes('変更前：版1'), 'meta');
     await p.context().close();
@@ -797,8 +817,7 @@ await check('P5. 1ファイル版を直接開いて動く（パソコン用ブ�
   await p.goto(`file://${SINGLE_FILE}`);
   await closeGuide(p);
   assert(await p.isHidden('#trialBanner'), '購入者用');
-  await p.tap('#btnSample');
-  await p.waitForSelector('#sampleBanner:not([hidden])');
+  await loadSample(p);
   assert((await p.textContent('#tab-compare')).includes('仕様変更3件'), '比較');
   await p.tap('#btnExport');
   await p.waitForSelector('.preview-img');
@@ -813,8 +832,7 @@ await check('P5. 1ファイル版を直接開いて動く（パソコン用ブ�
 await check('P7. 配布ZIPの web 版（index.html）も購入者用として動く', async () => {
   const p = await newPage(IPAD_L, { url: ZIP_URL });
   assert(await p.isHidden('#trialBanner'), '購入者用');
-  await p.tap('#btnSample');
-  await p.waitForSelector('#sampleBanner:not([hidden])');
+  await loadSample(p);
   await p.tap('#btnExport');
   await p.waitForSelector('.preview-img');
   assert(!isDark((await edgeColors(p)).top), '帯なし');
@@ -832,30 +850,40 @@ await check('P8. 購入者用から使い方を開ける（/buyer/ → /manual.h
   await p.context().close();
 });
 
-await check('P9. 再訪：保存済みの注文をサンプルで上書きしない（案内を初めて見る場合も）', async () => {
+await check('P9・M1. 以前の1件の保存データを移行（変更前・版番号つき）。再読み込みで増えず、サンプルを試しても消えない', async () => {
   const ctx = await browser.newContext({ viewport: IPAD_P, hasTouch: true, isMobile: true });
   const fixture = await readFile(fileURLToPath(new URL('../fixtures/backup-v1.json', import.meta.url)), 'utf8');
   const raw = JSON.parse(fixture);
   raw.data.current.orderNo = 'KEEP-ME';
+  raw.data.current.memo = 'メモ<b>太字ではなく文字</b>';
   raw.data.is_sample = false; // 実際の注文として保存されている状態
-  // 以前から購入者用の保存場所にデータがある状態（案内はまだ見ていない）
+  // 以前の版で、購入者用の保存場所に1件だけ保存されていた状態（案内はまだ見ていない）
   await ctx.addInitScript((t) => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem('katachi-awase:doc', t); sessionStorage.setItem('seeded', '1'); } }, JSON.stringify(raw));
   const p = await ctx.newPage();
+  p.errors = [];
+  p.on('pageerror', (e) => p.errors.push(e.message));
   await p.goto(URL_);
   assert((await p.textContent('.modal h2')) === '使い方', '案内は出る');
   await p.locator('.modal [data-close]').tap();
   if (!(await p.locator('#f-orderNo').isVisible())) await p.tap('#tab-input');
-  assert((await p.inputValue('#f-orderNo')) === 'KEEP-ME', '保存済みの注文が表示される');
+  assert((await p.inputValue('#f-orderNo')) === 'KEEP-ME', '移行した注文が開く');
+  assert((await p.inputValue('#f-memo')) === 'メモ<b>太字ではなく文字</b>', 'メモは文字のまま');
+  assert((await p.textContent('#orderMeta')).includes('変更前：版1') && (await p.textContent('#orderMeta')).includes('版2'), '変更前と版番号');
   assert(await p.isHidden('#sampleBanner'), 'サンプルにしない');
-  // 案内の「架空のサンプルで試す」は、上書き前に確認とバックアップを出す
-  await p.tap('#btnHelp');
-  await p.getByRole('button', { name: '架空のサンプルで試す', exact: true }).tap();
-  const t = await p.textContent('.modal');
-  assert(t.includes('先にバックアップを書き出す') && t.includes('元に戻せません'), t);
-  await p.locator('.modal-actions .btn:not(.btn-danger):not(.btn-primary)').first().tap();
+  let lib = await storedLib(p);
+  assert(lib.orders.length === 1, '1件として移行');
+  assert((await p.evaluate(() => localStorage.getItem('katachi-awase:doc'))) !== null, '旧データは消さない');
+  // サンプルを試しても既存の注文は消えない
+  await loadSample(p);
   await p.reload();
-  assert((await p.inputValue('#f-orderNo')) === 'KEEP-ME', '再読み込み後も残る');
+  lib = await storedLib(p);
+  assert(lib.orders.length === 2 && lib.orders.filter((o) => o.data.current.orderNo === 'KEEP-ME').length === 1, `再読み込みで増えない ${lib.orders.length}`);
   assert(await p.locator('.modal').count() === 0, '2回目は案内なし');
+  // 注文一覧に移行した注文がある
+  await p.tap('#btnOrders');
+  const items = await p.$$eval('.ol-item .ol-no', (els) => els.map((e) => e.textContent));
+  assert(items.includes('KEEP-ME') && items.includes('SAMPLE-001'), JSON.stringify(items));
+  assert(p.errors.length === 0, p.errors.join(' / '));
   await ctx.close();
 });
 
@@ -864,7 +892,9 @@ await check('P6. 使い方ページ（iPad縦・スマートフォン幅で横�
     const p = await newPage(vp, { url: `${TRIAL_URL}manual.html`, keepGuide: true });
     const r = await p.evaluate(() => ({ sw: document.documentElement.scrollWidth, w: innerWidth, h2: [...document.querySelectorAll('h2')].map((h) => h.textContent) }));
     assert(r.sw <= r.w + 1, `横スクロール ${r.sw}>${r.w}`);
-    for (const h of ['できること', '対応するバッグの形', '寸法を測る位置', '画像を保存する', 'バックアップと復元', '新しい注文を始める', '保存できないとき', 'データの保存場所について']) assert(r.h2.includes(h), h);
+    for (const h of ['できること', '対応するバッグの形', '寸法を測る位置', '画像を保存する', '注文一覧（切り替え・複製・削除）', 'バックアップと追加', '保存できないとき', 'データの保存場所について']) assert(r.h2.includes(h), h);
+    const body = await p.textContent('body');
+    assert(!body.includes('扱える注文は1件'), '古い説明が残っていない');
     await p.screenshot({ path: `${OUT}manual-${vp.width}.png`, fullPage: false });
     await p.context().close();
   }
@@ -924,6 +954,8 @@ await check('12a. iPad縦（820×1180）で操作できる', () => layoutCheck(I
 await check('12b. スマートフォン幅（390×844）で操作できる', () => layoutCheck(PHONE, 'phone'));
 await check('12c. iPad横（1180×820）は左に入力・右に図', async () => {
   const p = await newPage(IPAD_L);
+  await loadSample(p);
+  await p.tap('#tab-diagram');
   const a = await p.locator('#pane-input').boundingBox();
   const b = await p.locator('#pane-diagram').boundingBox();
   assert(a && b && a.x < b.x && Math.abs(a.y - b.y) < 80, `位置 ${JSON.stringify([a, b])}`);
@@ -932,15 +964,242 @@ await check('12c. iPad横（1180×820）は左に入力・右に図', async () =
   await p.context().close();
 });
 
-await check('サンプル上書き前に確認が出る', async () => {
-  const p = await newPage(PHONE);
-  await p.tap('#tab-input');
-  await p.fill('#f-height', '20');
-  await p.tap('#btnSample');
-  assert(await p.isVisible('.modal'), '確認ダイアログ');
-  await p.tap('.modal-actions .btn:not(.btn-danger)');
-  assert((await p.inputValue('#f-height')) === '20', 'キャンセルで保持');
+// ---------- 複数の注文 ----------
+async function listItems(p) {
+  return p.$$eval('.ol-item', (els) => els.map((e) => ({
+    no: e.querySelector('.ol-no').textContent, cur: e.classList.contains('is-current'), sum: e.querySelector('.ol-sum').textContent, time: e.querySelector('.ol-time').textContent,
+  })));
+}
+async function openFromList(p, label, nth = 0) {
+  await p.tap('#btnOrders');
+  const btns = p.locator('.ol-open', { has: p.locator('.ol-no', { hasText: new RegExp(`^${label}$`) }) });
+  await btns.nth(nth).tap();
+  await p.waitForSelector('.modal', { state: 'detached' }).catch(() => {});
+}
+async function fillOrder(p, vals) {
+  if (!(await p.locator('#f-orderNo').isVisible())) await p.tap('#tab-input');
+  for (const [k, v] of Object.entries(vals)) await p.fill(`#f-${k}`, v);
+}
+
+await check('M3・M4・M5. 注文の切り替えで内容が混ざらない／入力直後に切り替えても残る／同じ注文番号でも別', async () => {
+  const p = await newPage(IPAD_P);
+  await newOrderFromList(p);
+  await fillOrder(p, { orderNo: 'A-1', height: '30', mouthWidth: '40', gusset: '10', handleHeight: '15', memo: 'Aのメモ' });
+  await tapRadio(p, 'outerColor', 'navy');
+  await p.tap('#btnBaseline'); await p.tap('.modal-actions .btn-primary');
+  await fillOrder(p, { mouthWidth: '45' });
+  await newOrderFromList(p);
+  await fillOrder(p, { orderNo: 'A-1', height: '22', mouthWidth: '30', gusset: '6', handleHeight: '12', memo: 'Bのメモ' });
+  // 入力直後（自動保存の待ち時間内）に切り替える
+  await p.fill('#f-handleHeight', '13');
+  await openFromList(p, 'A-1', 1); // 古い方（A）
+  if (!(await p.locator('#f-orderNo').isVisible())) await p.tap('#tab-input');
+  assert((await p.inputValue('#f-mouthWidth')) === '45' && (await p.inputValue('#f-memo')) === 'Aのメモ', 'Aの内容');
+  assert((await p.textContent('#orderMeta')).includes('版2'), 'Aは版2');
+  await p.tap('#tab-compare');
+  assert((await p.textContent('#tab-compare')).includes('仕様変更2件'), 'Aの比較');
+  await openFromList(p, 'A-1', 0); // 新しい方（B）
+  if (!(await p.locator('#f-orderNo').isVisible())) await p.tap('#tab-input');
+  assert((await p.inputValue('#f-handleHeight')) === '13', '入力直後に切り替えても最後の入力が残る');
+  assert((await p.inputValue('#f-memo')) === 'Bのメモ' && (await p.textContent('#orderMeta')).includes('版1'), 'Bの内容');
+  assert((await p.textContent('#tab-compare')).trim() === '比較', 'Bに比較はない');
+  const lib = await storedLib(p);
+  const both = lib.orders.filter((o) => o.data.current.orderNo === 'A-1');
+  assert(both.length === 2 && both[0].id !== both[1].id, '同じ注文番号でも別の注文');
+  // 切り替えだけでは更新日時が変わらない
+  const t0 = JSON.stringify(lib.orders.map((o) => [o.id, o.updated_at]));
+  await openFromList(p, 'A-1', 1);
+  await openFromList(p, 'A-1', 0);
+  const t1 = JSON.stringify((await storedLib(p)).orders.map((o) => [o.id, o.updated_at]));
+  assert(t0 === t1, '更新日時が変わらない');
+  // 再読み込みで、最後に開いていた注文が開く
+  await p.reload();
+  if (!(await p.locator('#f-orderNo').isVisible())) await p.tap('#tab-input');
+  assert((await p.inputValue('#f-memo')) === 'Bのメモ', '最後に開いた注文');
+  await p.screenshot({ path: `${OUT}multi-switch.png` });
+  assert(p.errors.length === 0, p.errors.join(' / '));
   await p.context().close();
+});
+
+await check('M6. 複製：寸法と仕様だけを引き継ぎ、版1・変更前なし。元の注文は変わらない', async () => {
+  const p = await newPage(IPAD_L);
+  await loadSample(p);
+  await tapRadio(p, 'lining', 'yes');
+  await tapRadio(p, 'liningColor', 'navy');
+  const before = await p.evaluate(() => JSON.stringify(window.__katachi.state.entry));
+  await p.tap('#btnOrders');
+  const t = await p.textContent('.modal');
+  assert(t.includes('寸法と仕様をコピーします。注文番号・メモ・比較履歴は引き継ぎません'), '複製の説明');
+  await p.locator('.ol-item.is-current [data-more]').tap();
+  await p.locator('.ol-item.is-current [data-dup]').tap();
+  await p.waitForFunction(() => !window.__katachi.state.doc.isSample);
+  const d = await p.evaluate(() => window.__katachi.state.doc);
+  assert(d.current.orderNo === '' && d.current.memo === '' && d.current.questions === '', '注文番号・メモ・確認文は空');
+  assert(d.current.dims.mouthWidth === '45' && d.current.lining === 'yes' && d.current.liningColor === 'navy' && d.current.pocket === 'yes' && d.current.outerColor === 'kinari', '仕様を引き継ぐ');
+  assert(d.baseline === null && d.version === 1, '版1・変更前なし');
+  assert((await p.textContent('#orderMeta')).includes('初回確認'), '画面も版1');
+  const lib = await storedLib(p);
+  const orig = lib.orders.find((o) => o.id === JSON.parse(before).id);
+  assert(JSON.stringify(orig.data.current) === JSON.stringify(JSON.parse(before).doc.current) && orig.data.version === 2, '元の注文は変わらない');
+  assert(p.errors.length === 0, p.errors.join(' / '));
+  await p.context().close();
+});
+
+await check('M7. 削除：番号を表示して確認、キャンセル、元に戻す、編集中の削除は一覧へ、最後の1件の後は空の案内', async () => {
+  const p = await newPage(PHONE);
+  await newOrderFromList(p);
+  await fillOrder(p, { orderNo: 'DEL-1', height: '30' });
+  await newOrderFromList(p);
+  await fillOrder(p, { orderNo: 'DEL-2', height: '31' });
+  await p.tap('#btnOrders');
+  // キャンセル
+  await p.locator('.ol-item', { hasText: 'DEL-1' }).locator('[data-more]').tap();
+  await p.locator('.ol-item', { hasText: 'DEL-1' }).locator('[data-del]').tap();
+  let t = await p.textContent('.modal');
+  assert(t.includes('DEL-1') && t.includes('元に戻す'), t);
+  await p.tap('.modal-actions .btn:not(.btn-danger)');
+  assert((await p.textContent('.modal h2')) === '注文一覧', 'キャンセル後は一覧');
+  assert((await storedLib(p)).orders.length === 2, 'キャンセルで残る');
+  // 削除→元に戻す
+  await p.locator('.ol-item', { hasText: 'DEL-1' }).locator('[data-more]').tap();
+  await p.locator('.ol-item', { hasText: 'DEL-1' }).locator('[data-del]').tap();
+  await p.tap('.modal-actions .btn-danger');
+  assert((await storedLib(p)).orders.length === 1, '削除');
+  assert((await p.textContent('#olUndo')).includes('DEL-1'), '一覧に元に戻す');
+  await p.locator('#olUndo [data-undo]').tap();
+  const l2 = await storedLib(p);
+  assert(l2.orders.length === 2 && l2.orders.some((o) => o.data.current.orderNo === 'DEL-1' && o.data.current.dims.height === '30'), '元に戻す');
+  // 編集中（DEL-2）を削除 → 一覧へ
+  await p.locator('.ol-item.is-current [data-more]').tap();
+  await p.locator('.ol-item.is-current [data-del]').tap();
+  await p.tap('.modal-actions .btn-danger');
+  assert((await p.textContent('.modal h2')) === '注文一覧', '一覧へ戻る');
+  assert(await p.isVisible('#undoBar'), '画面下にも元に戻す');
+  // 最後の1件（DEL-1）も削除 → 空の案内から新規作成
+  await p.locator('.ol-item', { hasText: 'DEL-1' }).locator('[data-more]').tap();
+  await p.locator('.ol-item', { hasText: 'DEL-1' }).locator('[data-del]').tap();
+  await p.tap('.modal-actions .btn-danger');
+  assert((await p.textContent('.ol-empty')).includes('まだ注文がありません'), '空の案内');
+  await p.screenshot({ path: `${OUT}multi-empty-list.png` });
+  await p.locator('.ol-empty [data-empty-new]').tap();
+  assert((await storedLib(p)).orders.length === 1 && await p.isVisible('#f-orderNo'), '新規作成できる');
+  // 再読み込みすると「元に戻す」は消える（取り消せない状態でボタンを残さない）
+  await p.reload();
+  await closeGuide(p);
+  assert(await p.isHidden('#undoBar'), '再読み込み後は元に戻すなし');
+  assert(p.errors.length === 0, p.errors.join(' / '));
+  await p.context().close();
+});
+
+await check('M8・M9. 全件バックアップの追加、キャンセル、保存失敗で既存の注文が失われない。全件復元後の比較画像', async () => {
+  const p = await newPage(IPAD_L);
+  await loadSample(p);
+  await newOrderFromList(p);
+  await fillOrder(p, { orderNo: 'ALL-2', height: '25', mouthWidth: '35', gusset: '8', handleHeight: '12' });
+  await p.tap('#btnOrders');
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.tap('#olBackupAll')]);
+  const allPath = `${OUT}all-orders.json`;
+  await dl.saveAs(allPath);
+  await p.tap('.modal [data-close]');
+  // 別の環境：既存の注文がある状態で全件を追加
+  const q = await newPage(IPAD_L);
+  await newOrderFromList(q);
+  await fillOrder(q, { orderNo: 'EXIST-1', height: '20' });
+  await q.tap('#btnData');
+  await q.setInputFiles('#fileInput', allPath);
+  await q.waitForSelector('.modal h2:text("バックアップから追加")');
+  const t = await q.textContent('.modal');
+  assert(t.includes('全注文のバックアップ') && t.includes('2件'), t);
+  await q.tap('.modal-actions .btn:not(.btn-primary)');
+  assert((await storedLib(q)).orders.length === 1, 'キャンセルで変化なし');
+  // 保存失敗（容量不足を再現）→ 何も追加しない
+  await q.evaluate(() => {
+    window.__origSet = Storage.prototype.setItem;
+    Storage.prototype.setItem = function () { const e = new Error('full'); e.name = 'QuotaExceededError'; throw e; };
+  });
+  await q.tap('#btnData');
+  await q.setInputFiles('#fileInput', allPath);
+  await q.waitForSelector('.modal h2:text("バックアップから追加")');
+  await q.tap('.modal-actions .btn-primary');
+  await q.waitForSelector('.modal h2:text("追加できませんでした")');
+  assert((await q.textContent('.modal')).includes('何も追加していません'), '保存失敗の表示');
+  await q.tap('.modal [data-close]');
+  assert((await q.evaluate(() => window.__katachi.state.lib.orders.length)) === 1, '画面上も追加しない');
+  await q.evaluate(() => { Storage.prototype.setItem = window.__origSet; });
+  // 追加
+  await q.tap('#btnData');
+  await q.setInputFiles('#fileInput', allPath);
+  await q.waitForSelector('.modal h2:text("バックアップから追加")');
+  await q.tap('.modal-actions .btn-primary');
+  await q.waitForSelector('.modal h2:text("注文一覧")');
+  const items = await listItems(q);
+  assert(items.length === 3 && items.some((i) => i.no === 'EXIST-1') && items.some((i) => i.no === 'SAMPLE-001') && items.some((i) => i.no === 'ALL-2'), JSON.stringify(items));
+  // 全件復元後のサンプル注文の比較・画像
+  await q.locator('.ol-open', { hasText: 'SAMPLE-001' }).tap();
+  await q.tap('#tab-compare');
+  assert((await q.textContent('#tab-compare')).includes('仕様変更3件'), '復元後の比較');
+  const cu = await makePngs(q, { audience: 'customer' });
+  await savePngs('restored-sample-customer', cu);
+  assert(cu.imgs.length === 1 && cu.imgs[0].w === 2000, '画像');
+  // 保存失敗中に注文を切り替えると、成功したように見せず案内する
+  await q.evaluate(() => {
+    Storage.prototype.setItem = function () { const e = new Error('full'); e.name = 'QuotaExceededError'; throw e; };
+  });
+  await fillOrder(q, { height: '31' });
+  await q.tap('#btnOrders');
+  await q.locator('.ol-open', { hasText: 'EXIST-1' }).tap();
+  await q.waitForSelector('.modal h2:text("端末に保存できていません")');
+  assert((await q.textContent('.modal')).includes('全注文をまとめて書き出す'), '回復方法の案内');
+  await q.tap('.modal-actions .btn:not(.btn-primary)');
+  assert((await q.inputValue('#f-height')) === '31', '入力中の内容を保つ');
+  assert((await q.textContent('#saveStatus')).includes('保存できません'), '失敗の表示');
+  await q.evaluate(() => { Storage.prototype.setItem = window.__origSet; });
+  assert(p.errors.length === 0 && q.errors.length === 0, [...p.errors, ...q.errors].join(' / '));
+  await p.context().close();
+  await q.context().close();
+});
+
+await check('M11. 体験版でも注文一覧・切り替え・複製を試せる。購入者用とは混ざらない。再訪でサンプルを増やさない', async () => {
+  const p = await newPage(IPAD_P, { url: TRIAL_URL });
+  await p.tap('#btnOrders');
+  assert((await listItems(p)).length === 1, '体験版の初回はサンプル1件');
+  await p.locator('.ol-item.is-current [data-more]').tap();
+  await p.locator('.ol-item.is-current [data-dup]').tap();
+  await p.waitForFunction(() => !window.__katachi.state.doc.isSample);
+  await p.reload();
+  await p.tap('#btnOrders');
+  assert((await listItems(p)).length === 2, '再訪でサンプルが増えない');
+  await p.tap('.modal [data-close]');
+  await p.goto(URL_);
+  await closeGuide(p);
+  assert(await p.evaluate(() => window.__katachi.state.lib.orders.length) === 0, '購入者用には体験版の注文がない');
+  assert(p.errors.length === 0, p.errors.join(' / '));
+  await p.context().close();
+});
+
+await check('M13. 注文一覧：iPad縦横・スマートフォンで横スクロールなし、操作は44px以上、閉じるが見える', async () => {
+  for (const vp of [{ width: 768, height: 1024 }, { width: 1024, height: 768 }, PHONE]) {
+    const p = await newPage(vp);
+    await loadSample(p);
+    await newOrderFromList(p);
+    await fillOrder(p, { orderNo: 'とても長い注文番号ABCDEFGHIJKLMNOP-1234567890', height: '30' });
+    await p.tap('#btnOrders');
+    await p.locator('.ol-item.is-current [data-more]').tap();
+    const r = await p.evaluate(() => {
+      const m = document.querySelector('.modal');
+      const btns = [...m.querySelectorAll('button, input')].filter((e) => e.offsetParent && !e.closest('[hidden]'));
+      return {
+        hs: document.documentElement.scrollWidth > innerWidth || m.scrollWidth > m.clientWidth + 1,
+        small: btns.filter((e) => e.getBoundingClientRect().height < 44).map((e) => e.textContent.trim().slice(0, 10) || e.id),
+        out: btns.filter((e) => e.getBoundingClientRect().right > innerWidth + 1).map((e) => e.textContent.trim().slice(0, 10)),
+        close: (() => { const b = m.querySelector('[data-close]').getBoundingClientRect(); return b.top >= 0 && b.bottom <= innerHeight; })(),
+      };
+    });
+    assert(!r.hs && r.small.length === 0 && r.out.length === 0 && r.close, `${vp.width}: ${JSON.stringify(r)}`);
+    await p.screenshot({ path: `${OUT}order-list-${vp.width}x${vp.height}.png` });
+    assert(p.errors.length === 0, p.errors.join(' / '));
+    await p.context().close();
+  }
 });
 
 assert(page.errors.length === 0, page.errors.join(' / '));

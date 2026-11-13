@@ -1,10 +1,14 @@
 import {
   DIMS, COLORS, TRI, colorOf, rangeText, fmt, emptyDoc, cloneOrder, analyze, diffOrders, changeText,
-  fieldValues, sampleDoc, compareOrders, defaultOutput, hasContent, serializeDoc, parseBackup,
+  fieldValues, sampleDoc, compareOrders, defaultOutput, hasContent,
 } from './model.js';
 import { buildScene, buildCompareScene, sceneToSvg } from './diagram.js';
 import { renderPngs, exportBlockers, imageFileName, safeFilePart } from './export.js';
-import { loadDoc, saveDoc, guideSeen, markGuideSeen } from './storage.js';
+import { createStore, guideSeen, markGuideSeen } from './storage.js';
+import {
+  emptyLibrary, makeEntry, sortedByUpdated, searchOrders, orderLabel, orderSummary, formatDateTime,
+  duplicateDoc, newOrderDoc, DUPLICATE_NOTE, exportOrder, exportAll, parseImport, libraryWithImported,
+} from './library.js';
 import { EDITION } from './edition.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -12,12 +16,17 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 const state = {
-  doc: emptyDoc(),
+  lib: emptyLibrary(), // 注文一覧（全件）
+  entry: null, // 開いている注文（lib.orders の1件）。null＝どの注文も開いていない
+  doc: emptyDoc(), // 開いている注文の内容（entry.doc と同じもの）。注文がないときは表示用の空の内容
   tab: 'input',
   highlight: null,
   save: { status: 'idle' },
-  loadError: null,
+  saveLocked: false, // 読めない保存データを保管できなかったとき、上書きしないよう保存を止める
+  memoryOnly: false, // 端末に保存できない環境（この画面を閉じるまでの間だけ使える）
+  undo: null, // 直前に削除した注文（このページを開いている間だけ取り消せる）
 };
+const store = createStore();
 
 const wideMQ = window.matchMedia('(min-width: 960px) and (orientation: landscape)');
 const isWide = () => wideMQ.matches;
@@ -29,16 +38,27 @@ const isNarrow = () => window.innerWidth < 700;
 // ---------- 初期化 ----------
 
 function init() {
-  const loaded = loadDoc();
-  if (loaded.doc) state.doc = loaded.doc;
-  else if (EDITION.startWithSample && loaded.error !== 'broken') {
-    // 体験版：保存データがなければ架空のサンプルで始める
-    state.doc = sampleDoc();
-    state.tab = 'compare';
+  const r = store.load();
+  let notice = null;
+  if (r.lib) state.lib = r.lib;
+  if (r.status === 'fresh' || ((r.status === 'unavailable') && !r.lib)) {
+    // 初めて開いたとき（保存データなし）。体験版だけ架空のサンプルを1件入れる（再訪では追加しない）
+    if (EDITION.startWithSample) {
+      const e = makeEntry(sampleDoc());
+      state.lib.orders.push(e);
+      state.lib.activeId = e.id;
+      state.tab = 'compare';
+    }
   }
-  state.loadError = loaded.error;
-  if (loaded.error === 'unavailable') state.save = { status: 'unavailable' };
-  if (loaded.error === 'broken') state.save = { status: 'broken' };
+  if (r.status === 'unavailable') { state.memoryOnly = true; state.save = { status: 'unavailable' }; }
+  if (r.status === 'migrated') state.save = { status: 'migrated' };
+  if (r.status === 'migrate-unsaved') { state.save = { status: 'failed', reason: r.reason }; notice = 'migrate-unsaved'; }
+  if (r.status === 'broken') { state.save = { status: 'broken' }; notice = 'broken'; }
+  if (r.status === 'legacy-broken') { state.save = { status: 'broken' }; notice = 'legacy-broken'; state.brokenRaw = r.raw; }
+  if (r.status === 'broken-locked') { state.saveLocked = true; state.save = { status: 'locked' }; notice = 'broken-locked'; state.brokenRaw = r.raw; }
+
+  const active = state.lib.orders.find((o) => o.id === state.lib.activeId) || sortedByUpdated(state.lib.orders)[0] || null;
+  setEntry(active);
 
   buildDimFields();
   buildChoice($('#outerColorChips'), 'outerColor', colorChoices());
@@ -48,10 +68,42 @@ function init() {
   bindEvents();
   trackTopbarHeight();
   fillForm();
-  if (!hasContent(state.doc) && isWide()) state.tab = 'diagram';
+  if (state.entry && !hasContent(state.doc) && isWide()) state.tab = 'diagram';
   applyEdition();
   render();
-  if (!guideSeen()) openGuide({ first: true });
+  if (r.status === 'fresh' && state.entry) saveNow();
+  if (notice) showLoadNotice(notice);
+  else if (!guideSeen()) openGuide({ first: true });
+}
+
+/** 読み込み時の問題を知らせる（以前のデータは消していないことを伝える） */
+function showLoadNotice(kind) {
+  const raw = state.brokenRaw;
+  const texts = {
+    'migrate-unsaved': '<p>以前の注文を新しい保存形式に移しましたが、端末への保存に失敗しました（容量不足など）。</p><p>以前のデータは消していません。次に開いたときにもう一度移します。今のうちに「データ」→「全注文をまとめて書き出す」でバックアップしてください。</p>',
+    broken: '<p>保存されていた注文一覧を読み込めませんでした。読み込めなかったデータは、この端末の別の場所に保管しています。</p><p>新しく注文を作れます。</p>',
+    'legacy-broken': '<p>以前の保存データを読み込めませんでした。以前のデータは消していません。</p><p>下の「以前のデータを表示」で内容をコピーして保管できます。</p>',
+    'broken-locked': '<p>保存されていた注文一覧を読み込めず、別の場所に保管することもできませんでした。上書きしないよう、<strong>端末への保存を止めています</strong>。</p><p>下の「以前のデータを表示」で内容をコピーして保管してください。</p>',
+  };
+  const actions = [{ label: '閉じる', value: null, primary: true }];
+  if (raw) actions.unshift({ label: '以前のデータを表示', value: 'raw' });
+  openModal({ title: '保存データについて', html: texts[kind], actions }).then((v) => {
+    if (v === 'raw') {
+      openModal({
+        title: '以前のデータ（テキスト）',
+        html: '<p>すべて選択してコピーし、メモなどに保管してください。</p><textarea id="rawText" rows="8" readonly spellcheck="false" aria-label="以前のデータ"></textarea>',
+        onMount: (m) => { const ta = $('#rawText', m); ta.value = raw; ta.focus(); ta.select(); },
+      });
+    }
+  });
+}
+
+/** 開く注文を切り替える（画面の内容も入れ替える） */
+function setEntry(entry) {
+  state.entry = entry || null;
+  state.doc = entry ? entry.doc : emptyDoc();
+  state.lib.activeId = entry ? entry.id : null;
+  state.highlight = null;
 }
 
 /** 版ごとの表示（体験版の表示・購入ページへの案内） */
@@ -87,7 +139,7 @@ function openGuide({ first = false } = {}) {
   } else {
     actions.push({ label: '閉じる', value: null });
     actions.push({ label: '架空のサンプルで試す', value: 'sample' });
-    actions.push({ label: '新しい注文を始める', value: 'new', primary: true });
+    actions.push({ label: '新しい注文を作る', value: 'new', primary: true });
   }
   return openModal({
     title: '使い方',
@@ -101,15 +153,16 @@ function openGuide({ first = false } = {}) {
         <li><strong>「確認画像を作成」で画像を保存して、お客様に送る</strong>
           <span>変更前があれば、変更前後を並べた画像になります。</span></li>
       </ol>
+      <p class="hint">注文はいくつでも保存できます。「注文一覧」から、注文の切り替え・新規作成・複製（定番の仕様を使い回す）ができます。</p>
       ${trial
     ? '<p class="guide-note">これは体験版です。確認画像には「体験版・サンプル」と入ります。実際のお客様の情報は入力しないでください。</p>'
-    : '<p class="guide-note">入力はこの端末のブラウザの中に保存されます（ほかの端末とは同期しません）。消えることがあるため、「データ」→「バックアップを書き出す」で定期的に保存してください。</p>'}
+    : '<p class="guide-note">入力はこの端末のブラウザの中に保存されます（ほかの端末とは同期しません）。消えることがあるため、「データ」→「全注文をまとめて書き出す」で定期的にバックアップしてください。</p>'}
       <p class="hint"><a href="${esc(manualHref())}" target="_blank" rel="noopener">詳しい使い方（測る位置・保存のしかた・バックアップ）</a>　この案内は右上の「使い方」でいつでも開けます。</p>`,
     actions,
   }).then((v) => {
     markGuideSeen();
     if (v === 'sample') onSample();
-    else if (v === 'new') startNewOrder();
+    else if (v === 'new') newOrder();
   });
 }
 
@@ -208,18 +261,32 @@ function bindEvents() {
   let lastNarrow = isNarrow();
   window.addEventListener('resize', () => { if (isNarrow() !== lastNarrow) { lastNarrow = isNarrow(); render(); } });
 
-  $('#btnSample').addEventListener('click', onSample);
+  $('#btnOrders').addEventListener('click', () => openOrderList());
   $('#btnBaseline').addEventListener('click', onBaseline);
   $('#btnExport').addEventListener('click', onExport);
   $('#btnData').addEventListener('click', onData);
   $('#btnHelp').addEventListener('click', () => openGuide());
-  $('#btnNewFromSample').addEventListener('click', startNewOrder);
+  $('#btnNewFromSample').addEventListener('click', () => newOrder());
+  $('#emptyNew').addEventListener('click', () => newOrder());
+  $('#emptyList').addEventListener('click', () => openOrderList());
+  $('#undoBar').addEventListener('click', (e) => {
+    if (e.target.closest('[data-undo]')) undoDelete();
+    else if (e.target.closest('[data-undo-dismiss]')) { state.undo = null; renderUndo(); }
+  });
   $('#fileInput').addEventListener('change', onFileChosen);
 }
 
-function changed() {
-  render();
+/** 開いている注文の内容が変わった（更新日時を進めて保存を予約） */
+function markEdited() {
+  if (!state.entry) return;
+  state.entry.updatedAt = new Date().toISOString();
   scheduleSave();
+}
+
+function changed() {
+  if (!state.entry) return;
+  render();
+  markEdited();
 }
 
 // ---------- 保存 ----------
@@ -236,12 +303,33 @@ function flushSave() {
 window.addEventListener('pagehide', flushSave);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
 
+/** 全注文を保存する。戻り値 true＝保存できた */
 function saveNow() {
   clearTimeout(saveTimer);
   saveTimer = null;
-  const r = saveDoc(state.doc);
+  if (state.saveLocked) { state.save = { status: 'locked' }; renderSaveStatus(); return false; }
+  if (state.memoryOnly) { state.save = { status: 'unavailable' }; renderSaveStatus(); return false; }
+  const r = store.save(state.lib);
   state.save = r.ok ? { status: 'saved', at: r.at } : { status: 'failed', reason: r.reason };
   renderSaveStatus();
+  return r.ok;
+}
+
+/** 保存できていないとき、切り替えなどの前に知らせる。戻り値 true＝続ける */
+async function confirmUnsaved(action) {
+  if (saveNow()) return true;
+  const v = await openModal({
+    title: '端末に保存できていません',
+    html: `<p>今の内容を端末に保存できませんでした（${state.save.reason === 'quota' ? '容量不足' : 'この環境では保存できない状態'}）。</p>
+      <p>このページを開いている間は内容が残りますが、閉じたり再読み込みしたりすると失われます。<strong>先に「全注文をまとめて書き出す」でバックアップしてください。</strong></p>`,
+    actions: [
+      { label: 'キャンセル', value: false },
+      { label: '全注文を書き出す', value: 'backup' },
+      { label: `このまま${action}`, value: true, primary: true },
+    ],
+  });
+  if (v === 'backup') { backupAll(); return false; }
+  return v === true;
 }
 
 function renderSaveStatus() {
@@ -251,12 +339,14 @@ function renderSaveStatus() {
   let cls = 'ok';
   let html;
   if (s.status === 'saved') html = `<span class="st-icon" aria-hidden="true">✓</span>この端末に保存しました（${time(s.at)}）`;
+  else if (s.status === 'migrated') html = '<span class="st-icon" aria-hidden="true">✓</span>以前の注文を注文一覧に移しました';
+  else if (s.status === 'locked') { cls = 'warn'; html = '<span class="st-icon" aria-hidden="true">！</span>保存データを守るため、端末への保存を止めています。「データ」から書き出してください'; }
   else if (s.status === 'idle') html = '<span class="st-icon" aria-hidden="true">・</span>入力すると、この端末に自動で保存します';
   else if (s.status === 'broken') { cls = 'warn'; html = '<span class="st-icon" aria-hidden="true">！</span>以前の保存データを読み込めませんでした。新しく入力できます'; }
   else {
     cls = 'warn';
     const why = s.reason === 'quota' ? '容量が不足しています' : 'この環境では保存が使えません';
-    html = `<span class="st-icon" aria-hidden="true">！</span>端末に保存できません（${why}）。編集と画像作成は続けられます。「データ」からバックアップしてください`;
+    html = `<span class="st-icon" aria-hidden="true">！</span>端末に保存できません（${why}）。編集と画像作成は続けられます。「データ」→「全注文をまとめて書き出す」でバックアップしてください`;
   }
   el.className = `save-status ${cls}`;
   el.innerHTML = html;
@@ -265,6 +355,16 @@ function renderSaveStatus() {
 // ---------- 描画 ----------
 
 function render() {
+  const app0 = $('#app');
+  app0.classList.toggle('no-order', !state.entry);
+  for (const id of ['btnBaseline', 'btnExport']) $(`#${id}`).disabled = !state.entry;
+  renderUndo();
+  if (!state.entry) {
+    $('#sampleBanner').hidden = true;
+    $('#orderMeta').innerHTML = '<span class="meta-item mode">注文が開かれていません</span>';
+    renderSaveStatus();
+    return;
+  }
   const doc = state.doc;
   const an = analyze(doc.current);
   const changes = doc.baseline ? diffOrders(doc.baseline, doc.current) : [];
@@ -558,74 +658,202 @@ function toast(text) {
   t._timer = setTimeout(() => t.classList.remove('show'), 2600);
 }
 
-function replaceDoc(doc) {
-  state.doc = doc;
-  state.highlight = null;
+/** 注文を一覧に加えて開く（既存の注文は残る） */
+async function addAndOpen(doc, { tab = 'input', message } = {}) {
+  if (state.entry && !(await confirmUnsaved('続ける'))) return null;
+  const e = makeEntry(doc);
+  state.lib.orders.push(e);
+  setEntry(e);
+  state.tab = tab;
   fillForm();
   render();
   saveNow();
-}
-
-// ---------- 操作 ----------
-
-/**
- * 今の内容を消す前の確認。サンプルでない内容があるときは、バックアップの書き出しを先に選べる。
- * 戻り値：true＝続ける
- */
-async function confirmErase(title, what, okLabel) {
-  const doc = state.doc;
-  if (!hasContent(doc)) return true;
-  const real = !doc.isSample;
-  for (;;) {
-    const v = await openModal({
-      title,
-      html: `<p>${what}</p>
-        ${real ? '<p><strong>今の内容と変更前の内容は消え、元に戻せません。</strong>残しておく場合は、先にバックアップを書き出してください。</p>' : '<p class="hint">今表示しているのは架空のサンプルです。</p>'}`,
-      actions: [
-        { label: 'キャンセル', value: false },
-        ...(real ? [{ label: '先にバックアップを書き出す', value: 'backup' }] : []),
-        { label: okLabel, value: true, danger: true },
-      ],
-    });
-    if (v === 'backup') { await backupForErase(); continue; }
-    return v === true;
-  }
-}
-
-/** 消去の前のバックアップ：ダウンロードできる環境はファイル、できない環境はテキストで */
-async function backupForErase() {
-  if (!FRAMED) {
-    downloadBlob(new Blob([backupText()], { type: 'application/json' }), backupFileName());
-    toast('バックアップのダウンロードを開始しました');
-    return;
-  }
-  await openModal({
-    title: 'バックアップ（テキスト）',
-    html: '<p>この表示ではファイルを保存できません。下のテキストをすべてコピーして、メモなどに保存してください。</p><textarea id="eraseBackup" rows="8" readonly spellcheck="false" aria-label="バックアップのテキスト"></textarea>',
-    onMount: (m) => { const ta = $('#eraseBackup', m); ta.value = backupText(); ta.focus(); ta.select(); },
-  });
-}
-
-async function startNewOrder() {
-  const trial = EDITION.id === 'trial';
-  const ok = await confirmErase('新しい注文を始める', `今の内容を消して、空の状態から入力を始めます。${trial ? '体験版では、実際のお客様の情報は入力しないでください。' : ''}`, '消去して始める');
-  if (!ok) return;
-  replaceDoc(emptyDoc());
-  state.tab = 'input';
-  render();
   window.scrollTo(0, 0);
-  toast('新しい注文を始めました。寸法から入力してください');
+  if (message) toast(message);
+  return e;
+}
+
+async function newOrder() {
+  const e = await addAndOpen(newOrderDoc(), {
+    message: EDITION.id === 'trial' ? '新しい注文を作りました。体験版では実際のお客様の情報は入力しないでください' : '新しい注文を作りました。寸法から入力してください',
+  });
+  if (!e) return;
+  if (!isWide()) state.tab = 'input';
+  render();
   const first = $('#f-orderNo');
   if (first) try { first.focus({ preventScroll: true }); } catch { /* 無視 */ }
 }
 
+/** 架空のサンプルを新しい注文として追加する（今の注文は消さない） */
 async function onSample() {
-  if (!(await confirmErase('サンプルで試す', '今の内容を、架空のサンプルで置き換えます。', 'サンプルに置き換える'))) return;
-  replaceDoc(sampleDoc());
-  state.tab = 'compare';
+  await addAndOpen(sampleDoc(), { tab: 'compare', message: '架空のサンプル注文を追加しました。変更前後の比較を表示しています' });
+}
+
+/** 注文を開く */
+async function openOrder(id) {
+  const e = state.lib.orders.find((o) => o.id === id);
+  if (!e) return;
+  if (state.entry && state.entry.id !== id && !(await confirmUnsaved('切り替える'))) return;
+  setEntry(e);
+  fillForm();
+  if (!isWide()) state.tab = 'input';
   render();
+  saveNow(); // 開いている注文だけを記録（更新日時は変えない）
   window.scrollTo(0, 0);
-  toast('架空のサンプルを読み込みました。変更前後の比較を表示しています');
+}
+
+/** 注文を複製（寸法・表地・裏地・ポケットだけ。版1・変更前なし。元の注文は変えない） */
+async function duplicateOrder(id) {
+  const src = state.lib.orders.find((o) => o.id === id);
+  if (!src) return;
+  const e = await addAndOpen(duplicateDoc(src.doc), { message: `複製しました。${DUPLICATE_NOTE}` });
+  if (e && !isWide()) { state.tab = 'input'; render(); }
+}
+
+/** 注文を削除（確認のあと）。このページを開いている間は「元に戻す」で取り消せる */
+async function deleteOrder(id) {
+  const idx = state.lib.orders.findIndex((o) => o.id === id);
+  if (idx < 0) return false;
+  const e = state.lib.orders[idx];
+  const ok = await confirmModal('注文を削除',
+    `<p>注文「<strong>${esc(orderLabel(e.doc))}</strong>」（${esc(orderSummary(e.doc))}）を削除します。</p>
+     <p class="hint">削除したあと、このページを開いている間は「元に戻す」で取り消せます。ページを閉じたり再読み込みしたりすると取り消せません。</p>`,
+    '削除する', true);
+  if (!ok) return false;
+  flushSave();
+  const wasActive = state.entry && state.entry.id === id;
+  state.lib.orders.splice(idx, 1);
+  if (wasActive) setEntry(null);
+  if (!state.memoryOnly && !state.saveLocked && !saveNow()) {
+    // 保存できなければ削除を取りやめる（画面と保存内容を食い違わせない）
+    state.lib.orders.splice(idx, 0, e);
+    if (wasActive) setEntry(e);
+    render();
+    await openModal({ title: '削除できませんでした', html: '<p>端末への保存に失敗したため、削除を取りやめました。注文はそのまま残っています。</p>' });
+    return false;
+  }
+  state.undo = { entry: e, index: idx, wasActive };
+  if (wasActive) { fillForm(); }
+  render();
+  return true;
+}
+
+async function undoDelete() {
+  const u = state.undo;
+  if (!u) return;
+  if (state.lib.orders.some((o) => o.id === u.entry.id)) { state.undo = null; renderUndo(); return; }
+  state.lib.orders.splice(Math.min(u.index, state.lib.orders.length), 0, u.entry);
+  if (!state.memoryOnly && !state.saveLocked && !saveNow()) {
+    state.lib.orders = state.lib.orders.filter((o) => o.id !== u.entry.id);
+    await openModal({ title: '元に戻せませんでした', html: '<p>端末への保存に失敗しました。</p>' });
+    return;
+  }
+  state.undo = null;
+  if (u.wasActive || !state.entry) { setEntry(u.entry); fillForm(); }
+  render();
+  toast(`注文「${orderLabel(u.entry.doc)}」を元に戻しました`);
+  const list = $('#orderList');
+  if (list) renderOrderList(list.closest('.modal'));
+}
+
+function renderUndo() {
+  const bar = $('#undoBar');
+  if (!bar) return;
+  const u = state.undo;
+  bar.hidden = !u;
+  if (u) {
+    bar.innerHTML = `<span>注文「${esc(orderLabel(u.entry.doc))}」を削除しました。<small>このページを開いている間は取り消せます</small></span>
+      <span class="undo-actions"><button type="button" class="btn btn-small" data-undo>元に戻す</button><button type="button" class="btn btn-small" data-undo-dismiss aria-label="この表示を閉じる">閉じる</button></span>`;
+  }
+}
+
+// ---------- 注文一覧 ----------
+
+let listQuery = '';
+function openOrderList() {
+  flushSave();
+  return openModal({
+    title: '注文一覧',
+    wide: true,
+    html: `
+      <div class="ol-tools">
+        <label class="ol-search"><span>注文番号で検索</span>
+          <input type="search" id="olSearch" inputmode="search" autocomplete="off" spellcheck="false" placeholder="例：A-102" value="${esc(listQuery)}"></label>
+        <button type="button" class="btn btn-primary" id="olNew">新しい注文を作る</button>
+      </div>
+      <div class="ol-undo" id="olUndo"></div>
+      <ul class="ol-list" id="orderList"></ul>
+      <div class="ol-foot">
+        <button type="button" class="btn" id="olSample">架空のサンプルを追加</button>
+        <button type="button" class="btn" id="olBackupAll">全注文をまとめて書き出す</button>
+      </div>
+      <p class="hint">複製：${esc(DUPLICATE_NOTE)}。</p>`,
+    actions: [{ label: '閉じる', value: null }],
+    onMount: (modal) => {
+      renderOrderList(modal);
+      $('#olSearch', modal).addEventListener('input', (e) => { listQuery = e.target.value; renderOrderList(modal); });
+      $('#olNew', modal).addEventListener('click', () => { closeModal(null); newOrder(); });
+      $('#olSample', modal).addEventListener('click', () => { closeModal(null); onSample(); });
+      $('#olBackupAll', modal).addEventListener('click', () => backupAll());
+      modal.addEventListener('click', async (e) => {
+        const b = e.target.closest('[data-open],[data-more],[data-dup],[data-del],[data-undo],[data-empty-new]');
+        if (!b) return;
+        if (b.dataset.open) { closeModal(null); openOrder(b.dataset.open); }
+        else if (b.dataset.more) {
+          const menu = $(`#menu-${b.dataset.more}`, modal);
+          const open = menu.hidden;
+          $$('.ol-menu', modal).forEach((m) => { m.hidden = true; });
+          $$('[data-more]', modal).forEach((x) => x.setAttribute('aria-expanded', 'false'));
+          menu.hidden = !open;
+          b.setAttribute('aria-expanded', String(open));
+        } else if (b.dataset.dup) { closeModal(null); duplicateOrder(b.dataset.dup); }
+        else if (b.dataset.del) {
+          const id = b.dataset.del;
+          closeModal(null);
+          await deleteOrder(id);
+          openOrderList(); // 削除のあとは注文一覧へ戻る（キャンセルでも一覧に戻る）
+        } else if ('undo' in b.dataset) { await undoDelete(); renderOrderList(modal); }
+        else if ('emptyNew' in b.dataset) { closeModal(null); newOrder(); }
+      });
+    },
+  });
+}
+
+function renderOrderList(modal) {
+  if (!modal) return;
+  const ul = $('#orderList', modal);
+  const all = sortedByUpdated(state.lib.orders);
+  const shown = searchOrders(all, listQuery);
+  const u = state.undo;
+  $('#olUndo', modal).innerHTML = u
+    ? `<div class="undo-inline"><span>注文「${esc(orderLabel(u.entry.doc))}」を削除しました（このページを開いている間は取り消せます）</span><button type="button" class="btn btn-small" data-undo>元に戻す</button></div>`
+    : '';
+  if (all.length === 0) {
+    ul.innerHTML = `<li class="ol-empty"><p>まだ注文がありません。注文ごとに寸法・仕様・変更前の内容を保存して、あとから切り替えられます。</p>
+      <button type="button" class="btn btn-primary" data-empty-new>新しい注文を作る</button></li>`;
+    return;
+  }
+  if (shown.length === 0) {
+    ul.innerHTML = '<li class="ol-empty"><p>該当する注文はありません。</p></li>';
+    return;
+  }
+  const now = new Date();
+  ul.innerHTML = shown.map((o) => {
+    const cur = state.entry && state.entry.id === o.id;
+    const label = orderLabel(o.doc);
+    return `<li class="ol-item${cur ? ' is-current' : ''}">
+      <button type="button" class="ol-open" data-open="${esc(o.id)}" aria-label="${esc(label)}を開く${cur ? '（編集中）' : ''}">
+        <span class="ol-title"><span class="ol-no${o.doc.current.orderNo.trim() ? '' : ' is-none'}">${esc(label)}</span>${cur ? '<span class="badge-current">編集中</span>' : ''}${o.doc.isSample ? '<span class="badge-sample">サンプル</span>' : ''}</span>
+        <span class="ol-sum">${esc(orderSummary(o.doc))}</span>
+        <span class="ol-time">更新 ${esc(formatDateTime(o.updatedAt, now))}・版${o.doc.version}${o.doc.baseline ? `（変更前：版${o.doc.baselineVersion}）` : ''}</span>
+      </button>
+      <button type="button" class="btn ol-more" data-more="${esc(o.id)}" aria-expanded="false" aria-controls="menu-${esc(o.id)}" aria-label="${esc(label)}のその他の操作">その他</button>
+      <div class="ol-menu" id="menu-${esc(o.id)}" hidden>
+        <button type="button" class="btn" data-dup="${esc(o.id)}">複製して新しい注文</button>
+        <button type="button" class="btn btn-danger" data-del="${esc(o.id)}">削除</button>
+      </div>
+    </li>`;
+  }).join('');
 }
 
 async function onBaseline() {
@@ -651,6 +879,7 @@ async function onBaseline() {
   doc.baseline = cloneOrder(doc.current);
   doc.baselineVersion = doc.version;
   doc.version += 1;
+  if (state.entry) state.entry.updatedAt = new Date().toISOString();
   render();
   saveNow();
   toast(`版${doc.baselineVersion}を変更前として保存しました。ここからの編集は版${doc.version}です`);
@@ -750,7 +979,7 @@ async function onExport() {
     onMount: (modal) => {
       syncControls(modal);
       generate(modal);
-      const changedSetting = () => { syncControls(modal); generate(modal); scheduleSave(); };
+      const changedSetting = () => { syncControls(modal); generate(modal); markEdited(); };
       for (const r of $$('input[name="paud"]', modal)) {
         r.addEventListener('change', () => { settings.audience = r.value; changedSetting(); });
       }
@@ -913,63 +1142,90 @@ function downloadBlob(blob, name) {
 
 // ---------- データ（バックアップ） ----------
 
-function backupFileName() {
-  const doc = state.doc;
-  const ed = EDITION.id === 'trial' ? '_trial' : '';
-  return `katachi_backup${ed}_${safeFilePart(doc.current.orderNo)}_v${doc.version}.json`;
+const dateStamp = (d = new Date()) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+const edPrefix = () => (EDITION.id === 'trial' ? 'katachi_trial' : 'katachi');
+
+/** 1件用と全件用はファイル名で区別する */
+function orderFileName(entry) {
+  return `${edPrefix()}_order_${safeFilePart(entry.doc.current.orderNo, 'no-number')}_v${entry.doc.version}_${dateStamp()}.json`;
+}
+function allFileName() {
+  return `${edPrefix()}_all-orders_${state.lib.orders.length}_${dateStamp()}.json`;
+}
+function orderText(entry) {
+  return JSON.stringify(exportOrder(entry, EDITION.id), null, 2);
+}
+function allText() {
+  return JSON.stringify(exportAll(state.lib, EDITION.id), null, 2);
 }
 
-function backupText() {
-  // どの版で書き出したかを記録（読み込み時の判定には使わない）
-  return JSON.stringify({ ...serializeDoc(state.doc), edition: EDITION.id }, null, 2);
+/** 書き出し：ダウンロードできない表示では、テキストで保管できるようにする */
+async function offerExport(text, name, what) {
+  if (!FRAMED) {
+    downloadBlob(new Blob([text], { type: 'application/json' }), name);
+    toast(`${what}の書き出しを開始しました（${name}）`);
+    return;
+  }
+  await openModal({
+    title: `${what}（テキスト）`,
+    html: '<p>この表示ではファイルを保存できません。下のテキストをすべてコピーして、メモなどに保管してください。</p><textarea id="exportText" rows="8" readonly spellcheck="false" aria-label="バックアップのテキスト"></textarea>',
+    onMount: (m) => { const ta = $('#exportText', m); ta.value = text; ta.focus(); ta.select(); },
+  });
+}
+
+function backupAll() {
+  flushSave(); // 直前の入力も含める
+  return offerExport(allText(), allFileName(), '全注文のバックアップ');
+}
+function backupCurrent() {
+  if (!state.entry) return null;
+  flushSave();
+  return offerExport(orderText(state.entry), orderFileName(state.entry), 'この注文のバックアップ');
 }
 
 async function onData() {
-  const doc = state.doc;
-  const name = backupFileName();
+  flushSave();
+  const has = !!state.entry;
   await openModal({
-    title: 'データ（バックアップと復元）',
+    title: 'データ（バックアップと追加）',
     html: `
-      <p>今の内容・変更前の内容・版番号をファイルに書き出し、あとで復元できます。</p>
       <p class="hint">ブラウザの保存は、設定や容量の都合で消えることがあります。区切りごとに書き出しておくと安心です。</p>
       <div class="data-actions">
-        <button type="button" class="btn btn-primary" id="dExport"${FRAMED ? ' hidden' : ''}>バックアップを書き出す</button>
-        <button type="button" class="btn" id="dImport">バックアップから復元</button>
+        <button type="button" class="btn btn-primary" id="dExportAll">全注文をまとめて書き出す（${state.lib.orders.length}件）</button>
+        ${has ? '<button type="button" class="btn" id="dExportOne">この注文を書き出す</button>' : ''}
       </div>
+      <div class="data-actions">
+        <button type="button" class="btn" id="dImport">バックアップから追加</button>
+      </div>
+      <p class="hint">読み込んだ注文は<strong>新しい注文として追加</strong>されます。今ある注文を書き換えたり、元の状態に巻き戻したりはしません。</p>
       <details class="data-more"${FRAMED ? ' open' : ''}>
-        <summary>ファイルが使えない場合（テキストで保存・復元）</summary>
-        <p class="hint">下のテキストをコピーしてメモなどに保存できます。復元するときは、保存したテキストを貼り付けて「テキストから復元」を押します。</p>
+        <summary>ファイルが使えない場合（テキストで書き出し・追加）</summary>
+        <p class="hint">テキストをコピーしてメモなどに保管できます。追加するときは、保管したテキストを貼り付けて「テキストから追加」を押します。</p>
         <textarea id="dText" rows="6" spellcheck="false" aria-label="バックアップのテキスト"></textarea>
         <div class="data-actions">
-          <button type="button" class="btn" id="dCopy">現在の内容をテキストで表示・コピー</button>
-          <button type="button" class="btn" id="dPaste">テキストから復元</button>
+          <button type="button" class="btn" id="dCopyAll">全注文をテキストで表示・コピー</button>
+          ${has ? '<button type="button" class="btn" id="dCopyOne">この注文をテキストで表示・コピー</button>' : ''}
+          <button type="button" class="btn" id="dPaste">テキストから追加</button>
         </div>
-      </details>
-      <hr>
-      <button type="button" class="btn btn-danger" id="dNew">新しい注文を始める（内容を消去）</button>`,
+      </details>`,
     actions: [{ label: '閉じる', value: null }],
     onMount: (modal) => {
-      $('#dExport', modal).addEventListener('click', async () => {
-        const blob = new Blob([backupText()], { type: 'application/json' });
-        downloadBlob(blob, name);
-        toast('バックアップを書き出しました');
-      });
+      $('#dExportAll', modal).addEventListener('click', () => backupAll());
+      if (has) $('#dExportOne', modal).addEventListener('click', () => backupCurrent());
       $('#dImport', modal).addEventListener('click', () => { const fi = $('#fileInput'); fi.value = ''; fi.click(); });
-      $('#dCopy', modal).addEventListener('click', async () => {
+      const copy = async (text) => {
         const ta = $('#dText', modal);
-        ta.value = backupText();
+        ta.value = text;
         ta.focus();
         ta.select();
         try { await navigator.clipboard.writeText(ta.value); toast('コピーしました'); } catch { toast('テキストを選択しました。コピーしてください'); }
-      });
+      };
+      $('#dCopyAll', modal).addEventListener('click', () => copy(allText()));
+      if (has) $('#dCopyOne', modal).addEventListener('click', () => copy(orderText(state.entry)));
       $('#dPaste', modal).addEventListener('click', () => {
         const text = $('#dText', modal).value;
         closeModal(null);
         importText(text);
-      });
-      $('#dNew', modal).addEventListener('click', () => {
-        closeModal(null);
-        startNewOrder();
       });
     },
   });
@@ -977,39 +1233,87 @@ async function onData() {
 
 function onFileChosen(e) {
   const file = e.target.files && e.target.files[0];
+  e.target.value = ''; // 同じファイルをもう一度選んでも読み込めるように
   if (!file) return;
   closeModal(null);
-  if (file.size > 200_000) {
-    openModal({ title: '読み込めませんでした', html: '<p>ファイルが大きすぎます。このツールで書き出したバックアップを選んでください。</p><p>現在の内容はそのまま残っています。</p>' });
+  if (file.size > 5_000_000) {
+    openModal({ title: '読み込めませんでした', html: '<p>ファイルが大きすぎます。このツールで書き出したバックアップを選んでください。</p><p>今ある注文はそのまま残っています。</p>' });
     return;
   }
   const reader = new FileReader();
   reader.onload = () => importText(String(reader.result || ''));
-  reader.onerror = () => openModal({ title: '読み込めませんでした', html: '<p>ファイルを読み取れませんでした。</p><p>現在の内容はそのまま残っています。</p>' });
+  reader.onerror = () => openModal({ title: '読み込めませんでした', html: '<p>ファイルを読み取れませんでした。</p><p>今ある注文はそのまま残っています。</p>' });
   reader.readAsText(file);
 }
 
+/**
+ * バックアップを読み込む。ファイル全体を検証し、内容を見せてから「新しい注文として追加」する。
+ * キャンセル・不正・保存失敗のときは、今ある注文を一切変えない。
+ */
 async function importText(text) {
-  let doc;
+  flushSave();
+  let parsed;
   try {
-    doc = parseBackup(text);
+    parsed = parseImport(text, state.lib.orders);
   } catch (err) {
     await openModal({
       title: '読み込めませんでした',
-      html: `<p class="error-text">！ ${esc(err.message)}</p><p>現在の内容はそのまま残っています。</p>`,
+      html: `<p class="error-text">！ ${esc(err.message)}</p><p>今ある注文はそのまま残っています。</p>`,
     });
     return;
   }
-  const summary = `<ul class="plain">
-    <li>注文番号：${esc(doc.current.orderNo || '未入力')}</li>
-    <li>版：${doc.version}${doc.baseline ? `（変更前：版${doc.baselineVersion}）` : '（変更前なし）'}</li></ul>`;
-  const ok = await confirmModal('バックアップから復元', `<p>次の内容で、現在の内容（変更前を含む）を置き換えます。</p>${summary}`, '置き換える', true);
+  const n = parsed.entries.length;
+  const kindLabel = { order: '1件用のバックアップ', orders: '全注文のバックアップ', legacy: '以前のバージョンのバックアップ（1件）' }[parsed.kind];
+  const first = parsed.entries.slice(0, 5).map((e) => `<li>${esc(orderLabel(e.doc))}（版${e.doc.version}${e.doc.baseline ? `・変更前：版${e.doc.baselineVersion}` : ''}）</li>`).join('');
+  const html = `
+    <ul class="plain">
+      <li>ファイルの種類：${kindLabel}</li>
+      <li>読み込める注文：<strong>${n}件</strong></li>
+    </ul>
+    <ul class="plain small-list">${first}${n > 5 ? `<li>ほか ${n - 5}件</li>` : ''}</ul>
+    <p><strong>新しい注文として追加します。</strong>今ある注文は変更しません。変更前の内容と版番号はそのまま引き継ぎます。</p>
+    ${parsed.duplicateIds ? `<p class="warn-text">！ このうち ${parsed.duplicateIds}件は、この端末にすでにある注文と同じもの（同じ注文から書き出したもの）です。追加すると、同じ内容の注文が2件になります。</p>` : ''}
+    ${!parsed.duplicateIds && parsed.sameOrderNos ? `<p class="warn-text">！ このうち ${parsed.sameOrderNos}件は、今ある注文と注文番号が同じです。上書きはせず、別の注文として追加します。</p>` : ''}
+    <p class="hint">キャンセルすると何も変わりません。</p>`;
+  const ok = await confirmModal('バックアップから追加', html, `${n}件を新しい注文として追加`);
   if (!ok) return;
-  replaceDoc(doc);
-  toast('バックアップから復元しました');
+  let result;
+  try {
+    result = libraryWithImported(state.lib, parsed);
+  } catch (err) {
+    await openModal({ title: '追加できませんでした', html: `<p class="error-text">！ ${esc(err.message)}</p><p>今ある注文はそのまま残っています。</p>` });
+    return;
+  }
+  // 全件を保存できたときだけ反映する（途中まで追加された状態を残さない）
+  if (!state.memoryOnly) {
+    if (state.saveLocked) {
+      await openModal({ title: '追加できませんでした', html: '<p>保存データを守るため、端末への保存を止めています。</p><p>今ある注文はそのまま残っています。</p>' });
+      return;
+    }
+    const r = store.save(result.lib);
+    if (!r.ok) {
+      await openModal({
+        title: '追加できませんでした',
+        html: `<p class="error-text">！ 端末に保存できませんでした（${r.reason === 'quota' ? '容量が不足しています' : '保存できない状態です'}）。</p><p>何も追加していません。今ある注文はそのまま残っています。</p>`,
+      });
+      return;
+    }
+  }
+  state.lib = result.lib;
+  if (result.added.length === 1) {
+    setEntry(result.added[0]);
+    fillForm();
+    render();
+  } else {
+    render();
+    openOrderList();
+  }
+  state.save = state.memoryOnly ? { status: 'unavailable' } : { status: 'saved', at: new Date() };
+  renderSaveStatus();
+  toast(`${result.added.length}件の注文を追加しました`);
 }
 
 // テスト用に状態を参照できるようにする（画面には影響しない）
-window.__katachi = { state, render, zoomState };
+window.__katachi = { state, render, zoomState, store };
 
 init();

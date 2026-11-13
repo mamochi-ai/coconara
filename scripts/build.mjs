@@ -76,7 +76,7 @@ async function buildWeb(dest) {
 }
 
 // ---------- 1ファイル版（モジュールを1つのスクリプトにまとめる） ----------
-const MODULE_ORDER = ['edition', 'model', 'diagram', 'report', 'export', 'storage', 'app'];
+const MODULE_ORDER = ['edition', 'model', 'library', 'diagram', 'report', 'export', 'storage', 'app'];
 
 export function bundleModules(sources) {
   const parts = ['const __m = {};'];

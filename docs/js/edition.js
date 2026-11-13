@@ -11,6 +11,8 @@ export const TRIAL_EDITION = {
   id: 'trial',
   label: '体験版',
   // 保存領域は購入者用と分ける（同じドメインで開いても混ざらない）
+  // 注文一覧の保存場所（版ごとに別）。storageKey は以前の1件用の保存場所（移行元。消さない）
+  ordersKey: 'katachi-awase:trial:orders',
   storageKey: 'katachi-awase:trial:doc',
   guideKey: 'katachi-awase:trial:guide-seen',
   // 確認画像に入れる表示（null で表示しない）
@@ -25,6 +27,7 @@ export const FULL_EDITION = {
   id: 'full',
   label: '',
   // 以前からの保存データと同じ場所（互換性のため変更しない）
+  ordersKey: 'katachi-awase:orders',
   storageKey: 'katachi-awase:doc',
   guideKey: 'katachi-awase:guide-seen',
   watermark: null,

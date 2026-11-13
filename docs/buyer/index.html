@@ -23,7 +23,7 @@
       <button type="button" class="btn-help" id="btnHelp">使い方</button>
     </div>
     <div class="actions">
-      <button type="button" class="btn" id="btnSample">サンプルで試す</button>
+      <button type="button" class="btn btn-orders" id="btnOrders">注文一覧</button>
       <button type="button" class="btn" id="btnBaseline">変更前として保存</button>
       <button type="button" class="btn btn-primary" id="btnExport">確認画像を作成</button>
       <button type="button" class="btn" id="btnData">データ</button>
@@ -39,8 +39,8 @@
     <a class="purchase-link" id="purchaseLink" hidden target="_blank" rel="noopener">購入ページへ</a>
   </div>
   <div class="sample-banner" id="sampleBanner" hidden>
-    <span>架空のサンプルを表示しています（実在の注文ではありません）</span>
-    <button type="button" class="btn btn-small" id="btnNewFromSample">サンプルを消して新しい注文を始める</button>
+    <span>架空のサンプル注文を表示しています（実在の注文ではありません）</span>
+    <button type="button" class="btn btn-small" id="btnNewFromSample">新しい注文を作る</button>
   </div>
   <p class="scheme-note">仕様確認用の模式図です。型紙・裁断図ではありません。</p>
 
@@ -49,6 +49,15 @@
     <button type="button" role="tab" class="tab" data-tab="diagram" id="tab-diagram" aria-controls="pane-diagram">図</button>
     <button type="button" role="tab" class="tab" data-tab="compare" id="tab-compare" aria-controls="pane-compare">比較</button>
   </div>
+
+  <section class="empty-order" id="emptyOrder" aria-label="注文が開かれていません">
+    <h2>注文が開かれていません</h2>
+    <p>注文一覧から注文を開くか、新しい注文を作ってください。</p>
+    <div class="data-actions">
+      <button type="button" class="btn btn-primary" id="emptyNew">新しい注文を作る</button>
+      <button type="button" class="btn" id="emptyList">注文一覧</button>
+    </div>
+  </section>
 
   <main class="layout">
     <section class="pane pane-input" id="pane-input" aria-label="入力">
@@ -138,6 +147,7 @@
   </main>
 </div>
 
+<div class="undo-bar" id="undoBar" role="status" aria-live="polite" hidden></div>
 <div class="modal-root" id="modalRoot" hidden></div>
 <input type="file" id="fileInput" accept="application/json,.json,text/plain" hidden>
 

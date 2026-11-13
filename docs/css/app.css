@@ -388,3 +388,56 @@ ul.plain { padding-left: 1.2em; }
   .btn-help { margin-left: auto; }
   .trial-banner, .sample-banner { margin: 8px 10px 0; }
 }
+
+/* ---------- 注文一覧 ---------- */
+.btn-orders { font-weight: 700; }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.empty-order { display: none; margin: 16px; padding: 20px; background: var(--panel); border: 1px dashed var(--line-strong); border-radius: var(--radius); }
+.empty-order h2 { margin: 0 0 6px; font-size: 18px; }
+.app.no-order .empty-order { display: block; }
+.app.no-order .tabs, .app.no-order .layout, .app.no-order .scheme-note { display: none !important; }
+.ol-tools { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; justify-content: space-between; margin-bottom: 8px; }
+.ol-search { display: grid; gap: 2px; flex: 1 1 220px; font-size: 13px; color: var(--muted); font-weight: 700; }
+.ol-search input { min-height: var(--tap); padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 17px; background: #fff; width: 100%; }
+.ol-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ol-item {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 8px; align-items: stretch;
+  border: 1px solid var(--line); border-radius: 10px; background: #fff; padding: 6px;
+}
+.ol-item.is-current { border: 2px solid var(--ink); background: #FAF8F3; }
+.ol-open {
+  display: grid; gap: 2px; text-align: left; min-height: 56px; padding: 6px 8px; border: 0; background: none;
+  font: inherit; color: inherit; cursor: pointer; border-radius: 6px; touch-action: manipulation; min-width: 0;
+}
+.ol-open:focus-visible { outline: 3px solid var(--hl); }
+.ol-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ol-no { font-weight: 700; font-size: 16px; word-break: break-all; }
+.ol-no.is-none { color: var(--muted); }
+.ol-sum { font-size: 14px; color: var(--text); }
+.ol-time { font-size: 12.5px; color: var(--muted); }
+.ol-more { align-self: center; min-width: 76px; }
+.ol-menu { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 8px 4px; border-top: 1px solid var(--line); margin-top: 6px; }
+.ol-menu[hidden] { display: none; }
+.badge-current { display: inline-block; padding: 0 7px; border-radius: 4px; background: var(--ink); color: #fff; font-size: 12px; line-height: 20px; font-weight: 700; }
+.badge-sample { display: inline-block; padding: 0 7px; border-radius: 4px; border: 1px dashed var(--change-line); color: var(--change); font-size: 12px; line-height: 18px; font-weight: 700; }
+.ol-empty { padding: 16px; border: 1px dashed var(--line-strong); border-radius: 10px; background: #fff; }
+.ol-empty p { margin: 0 0 10px; }
+.ol-foot { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.undo-inline { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; margin-bottom: 8px; border-radius: 8px; background: #F1EEE7; font-size: 14px; }
+.undo-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px;
+  padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  background: var(--ink); color: #fff; font-size: 14px;
+}
+.undo-bar[hidden] { display: none; }
+.undo-bar small { display: block; opacity: 0.85; font-size: 12px; }
+.undo-bar .btn { background: #fff; }
+.undo-actions { display: flex; gap: 8px; }
+.warn-text { color: var(--change); font-weight: 600; }
+.small-list { font-size: 14px; color: var(--muted); }
+@media (min-width: 700px) {
+  /* iPad など：一覧を行として読みやすく（番号・要約・更新日時を横に並べる） */
+  .ol-open { grid-template-columns: minmax(150px, 1fr) minmax(0, 2fr) auto; align-items: center; gap: 12px; }
+  .ol-time { text-align: right; }
+}

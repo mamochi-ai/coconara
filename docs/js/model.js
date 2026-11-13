@@ -395,8 +395,15 @@ export function parseBackup(text) {
   if (!SUPPORTED_SCHEMAS.includes(obj.schema_version)) {
     throw new Error(`対応していない形式です（schema_version: ${String(obj.schema_version)}）`);
   }
-  const d = obj.data;
-  if (!d || typeof d !== 'object') throw new Error('データ本体がありません');
+  return parseDocData(obj.data);
+}
+
+/**
+ * 注文1件分のデータ（serializeDoc の data 部分）を検証して doc にする。
+ * 旧形式（schema 1・2）のバックアップ、注文一覧の保存データ、新形式のバックアップで共通に使う。
+ */
+export function parseDocData(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) throw new Error('データ本体がありません');
   const current = validateOrder(d.current, '現在の内容');
   const baseline = d.baseline === null || d.baseline === undefined ? null : validateOrder(d.baseline, '変更前の内容');
   const version = d.version;

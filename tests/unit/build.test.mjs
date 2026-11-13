@@ -51,7 +51,7 @@ test('公開フォルダに購入者用の配布物（ZIP）を置かない', ()
 
 test('1ファイル版：モジュールを1つにまとめても「$$」などが保たれ、構文として正しい', () => {
   const sources = {};
-  for (const n of ['edition', 'model', 'diagram', 'report', 'export', 'storage', 'app']) sources[n] = read(`js/${n}.js`);
+  for (const n of ['edition', 'model', 'library', 'diagram', 'report', 'export', 'storage', 'app']) sources[n] = read(`js/${n}.js`);
   const js = bundleModules(sources);
   assert.ok(js.includes('const $$ = (sel, root = document)'), '$$ が残る');
   assert.ok(!/^\s*(import|export)\s/m.test(js));
