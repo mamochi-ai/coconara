@@ -241,7 +241,10 @@ await check('7. コーデラック：追加・重複防止・上限3着・個別
   assert(full.disabled && full.text.includes('3着まで'), '上限');
   // 引き出してハンガーで並んでいるか
   await p.click('.coord-tab');
-  assert((await p.locator('.coord-slot:not(.is-empty) .g-hanger').count()) === 3, 'コーデラックでもハンガーに掛かる');
+  // 3着ともハンガーに掛かって見える（写真のコートは写真のハンガー、ほかはコードで描いたハンガー）
+  assert((await p.locator('.coord-slot:not(.is-empty) .g-img').count()) === 3, 'コーデラックに3着');
+  const photoInCoord = [ids[MID], ids[MID + 1], ids[MID - 1]].includes('camel-chester-coat') ? 1 : 0;
+  assert((await p.locator('.coord-slot:not(.is-empty) .g-hanger').count()) === 3 - photoInCoord, 'コーデラックでもハンガーに掛かる');
   await p.screenshot({ path: `${OUT}phone-coord-open.png` });
   await p.click('.coord-slot:nth-child(2) .btn');
   assert((await p.textContent('.coord-count')) === '2/3', '個別に外す');
