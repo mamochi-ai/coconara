@@ -1,7 +1,11 @@
-// 購入者用の配布物を作る。公開体験版（docs/）と同じコードから、版の設定だけを差し替える。
-// 出力先 build/ は git の管理対象外（公開リポジトリ・GitHub Pages には含めない）。
+// 購入者用を作る。公開体験版（docs/）と同じコード（js/・css/）を使い、HTML に版の印を入れるだけ。
 //
-//   node scripts/build.mjs
+//   node scripts/build.mjs           … 下の2つを作る
+//   node scripts/build.mjs --check   … docs/buyer/index.html が最新かだけ確かめる（変更しない）
+//
+// (1) 購入者用ページ docs/buyer/index.html（GitHub Pages で /buyer/ として公開。git 管理する）
+//     docs/index.html から生成：版の印・検索除外の指定を入れ、css/js/使い方は ../ を参照する。
+// (2) 配布ZIP（build/ に出力。git の管理外。公開リポジトリ・GitHub Pages には含めない）
 //
 // 出力:
 //   build/katachi-awase/web/            … HTTPSで公開して使う形（index.html, css, js, manual.html）
@@ -22,11 +26,31 @@ const PKG = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'));
 const VERSION = PKG.version;
 const DIST = join(OUT, 'katachi-awase');
 
-// 体験版の設定行を、購入者用の設定に置き換える（ほかのコードは共通）
-const EDITION_LINE = 'export const EDITION = TRIAL_EDITION;';
-export function toFullEdition(src) {
-  if (!src.includes(EDITION_LINE)) throw new Error('edition.js の版の設定行が見つかりません');
-  return src.replace(EDITION_LINE, () => 'export const EDITION = FULL_EDITION;');
+/**
+ * 体験版の index.html から購入者用の HTML を作る。base は css/js/使い方への相対パス（'../' または './'）。
+ * 版は <meta name="katachi-edition" content="buyer"> で決まる（edition.js 参照）。
+ */
+export function buyerHtml(indexHtml, base = './') {
+  const swaps = [
+    ['<title>かたち合わせ</title>', () => `<title>かたち合わせ（購入者用）</title>\n<meta name="katachi-edition" content="buyer">\n<meta name="robots" content="noindex, nofollow">\n<!-- 自動生成：scripts/build.mjs（直接編集しない。docs/index.html を編集して npm run build） -->`],
+    ['<link rel="stylesheet" href="./css/app.css">', () => `<link rel="stylesheet" href="${base}css/app.css">`],
+    ['<link rel="help" href="./manual.html">', () => `<link rel="help" href="${base}manual.html">`],
+    ['<script type="module" src="./js/app.js"></script>', () => `<script type="module" src="${base}js/app.js"></script>`],
+  ];
+  let out = indexHtml;
+  for (const [from, to] of swaps) {
+    if (!out.includes(from)) throw new Error(`index.html に「${from}」が見つかりません`);
+    out = out.replace(from, to);
+  }
+  return out;
+}
+
+const BUYER_PAGE = join(SRC, 'buyer', 'index.html');
+async function buildBuyerPage() {
+  const html = buyerHtml(await readFile(join(SRC, 'index.html'), 'utf8'), '../');
+  await mkdir(dirname(BUYER_PAGE), { recursive: true });
+  await writeFile(BUYER_PAGE, html);
+  return html;
 }
 
 async function walk(dir) {
@@ -39,13 +63,14 @@ async function walk(dir) {
   return out;
 }
 
-/** web 版：docs/ を複製し、版の設定だけを差し替える */
+/** web 版（ZIP用）：docs/ の css・js・使い方をそのまま使い、index.html を購入者用にする */
 async function buildWeb(dest) {
   for (const f of await walk(SRC)) {
-    const rel = relative(SRC, f);
+    const rel = relative(SRC, f).split('\\').join('/');
+    if (rel.startsWith('buyer/') || rel === '.nojekyll') continue; // 公開用の購入者ページは ZIP に不要
     const to = join(dest, rel);
     await mkdir(dirname(to), { recursive: true });
-    if (rel === join('js', 'edition.js')) await writeFile(to, toFullEdition(await readFile(f, 'utf8')));
+    if (rel === 'index.html') await writeFile(to, buyerHtml(await readFile(f, 'utf8'), './'));
     else await copyFile(f, to);
   }
 }
@@ -86,7 +111,7 @@ async function buildSingle(webDir, dest) {
   // 置換文字列の「$$」などが解釈されないよう、関数で差し込む
   let out = html.replace('<link rel="stylesheet" href="./css/app.css">', () => `<style>\n${css}\n</style>`);
   out = out.replace('<script type="module" src="./js/app.js"></script>', () => `<script>\n${js}\n</script>`);
-  if (out.includes('./css/app.css') || out.includes('./js/app.js')) throw new Error('1ファイル版の組み立てに失敗しました');
+  if (out.includes('./css/app.css') || out.includes('./js/app.js') || !out.includes('content="buyer"')) throw new Error('1ファイル版の組み立てに失敗しました');
   await mkdir(dest, { recursive: true });
   await writeFile(join(dest, 'katachi-awase.html'), out);
   await copyFile(join(webDir, 'manual.html'), join(dest, 'manual.html'));
@@ -125,6 +150,15 @@ export function makeZip(entries) {
 }
 
 async function main() {
+  if (process.argv.includes('--check')) {
+    const want = buyerHtml(await readFile(join(SRC, 'index.html'), 'utf8'), '../');
+    const have = await readFile(BUYER_PAGE, 'utf8').catch(() => '');
+    if (want !== have) { console.error('docs/buyer/index.html が最新ではありません。npm run build を実行してください'); process.exit(1); }
+    console.log('docs/buyer/index.html は最新です');
+    return;
+  }
+  await buildBuyerPage();
+  console.log('購入者用ページ: docs/buyer/index.html');
   await rm(OUT, { recursive: true, force: true });
   await mkdir(DIST, { recursive: true });
   const webDir = join(DIST, 'web');

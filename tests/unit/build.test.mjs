@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import vm from 'node:vm';
-import { toFullEdition, bundleModules, makeZip } from '../../scripts/build.mjs';
+import { buyerHtml, bundleModules, makeZip } from '../../scripts/build.mjs';
 import { watermarkBands, layoutPages } from '../../docs/js/export.js';
 import { sampleDoc, defaultOutput } from '../../docs/js/model.js';
 import { TRIAL_EDITION, FULL_EDITION, EDITION } from '../../docs/js/edition.js';
@@ -23,14 +23,20 @@ test('公開フォルダ（docs）は体験版の設定', () => {
   assert.equal(FULL_EDITION.watermark, null);
 });
 
-test('購入者用は版の設定行だけが変わる', () => {
-  const src = read('js/edition.js');
-  const full = toFullEdition(src);
-  assert.match(full, /export const EDITION = FULL_EDITION;/);
-  assert.doesNotMatch(full, /export const EDITION = TRIAL_EDITION;/);
-  const diff = src.split('\n').filter((l, i) => l !== full.split('\n')[i]);
-  assert.equal(diff.length, 1);
-  assert.throws(() => toFullEdition('export const EDITION = X;'));
+test('購入者用ページは体験版の index.html から生成し、版の印と参照先だけが異なる', () => {
+  const index = read('index.html');
+  const page = read('buyer/index.html');
+  assert.equal(page, buyerHtml(index, '../'), 'docs/buyer/index.html が最新（npm run build）');
+  assert.match(page, /<meta name="katachi-edition" content="buyer">/);
+  assert.match(page, /<meta name="robots" content="noindex, nofollow">/);
+  assert.match(page, /src="\.\.\/js\/app\.js"/);
+  assert.match(page, /<link rel="help" href="\.\.\/manual\.html">/);
+  assert.doesNotMatch(index, /katachi-edition/, '体験版のページには印がない');
+  // 体験版から購入者用ページへのリンクを置かない
+  for (const f of ['index.html', 'manual.html']) assert.doesNotMatch(read(f), /href="[^"]*buyer/, f);
+  assert.doesNotMatch(read('js/app.js'), /buyer\//, 'app.js');
+  // 版を切り替える URL パラメーターはない
+  assert.doesNotMatch(read('js/edition.js'), /location|URLSearchParams/);
 });
 
 test('公開フォルダに購入者用の配布物（ZIP）を置かない', () => {
@@ -46,12 +52,11 @@ test('公開フォルダに購入者用の配布物（ZIP）を置かない', ()
 test('1ファイル版：モジュールを1つにまとめても「$$」などが保たれ、構文として正しい', () => {
   const sources = {};
   for (const n of ['edition', 'model', 'diagram', 'report', 'export', 'storage', 'app']) sources[n] = read(`js/${n}.js`);
-  sources.edition = toFullEdition(sources.edition);
   const js = bundleModules(sources);
   assert.ok(js.includes('const $$ = (sel, root = document)'), '$$ が残る');
   assert.ok(!/^\s*(import|export)\s/m.test(js));
   assert.doesNotThrow(() => new vm.Script(js));
-  assert.ok(js.includes('export const EDITION') === false && js.includes('const EDITION = FULL_EDITION'));
+  assert.ok(!js.includes('export const EDITION'));
 });
 
 test('ZIP：標準的なツールで展開でき、日本語の内容も保たれる', () => {

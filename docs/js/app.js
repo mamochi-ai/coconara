@@ -72,6 +72,12 @@ function applyEdition() {
 
 // ---------- 使い方（初回案内） ----------
 
+/** 使い方ページの場所（ページの <link rel="help"> に従う。購入者用ページからは ../manual.html） */
+function manualHref() {
+  const l = document.querySelector('link[rel="help"]');
+  return (l && l.getAttribute('href')) || './manual.html';
+}
+
 function openGuide({ first = false } = {}) {
   const trial = EDITION.id === 'trial';
   const actions = [];
@@ -79,9 +85,9 @@ function openGuide({ first = false } = {}) {
     if (!state.doc.isSample) actions.push({ label: 'サンプルを表示', value: 'sample' });
     actions.push({ label: first ? 'サンプルで試してみる' : '閉じる', value: null, primary: true });
   } else {
-    actions.push({ label: 'サンプルで試す', value: 'sample' });
-    actions.push({ label: '新しい注文を始める', value: 'new' });
-    actions.push({ label: '閉じる', value: null, primary: true });
+    actions.push({ label: '閉じる', value: null });
+    actions.push({ label: '架空のサンプルで試す', value: 'sample' });
+    actions.push({ label: '新しい注文を始める', value: 'new', primary: true });
   }
   return openModal({
     title: '使い方',
@@ -95,8 +101,10 @@ function openGuide({ first = false } = {}) {
         <li><strong>「確認画像を作成」で画像を保存して、お客様に送る</strong>
           <span>変更前があれば、変更前後を並べた画像になります。</span></li>
       </ol>
-      ${trial ? '<p class="guide-note">これは体験版です。確認画像には「体験版・サンプル」と入ります。実際のお客様の情報は入力しないでください。</p>' : ''}
-      <p class="hint"><a href="./manual.html" target="_blank" rel="noopener">詳しい使い方（測る位置・保存のしかた・バックアップ）</a>　この案内は右上の「使い方」でいつでも開けます。</p>`,
+      ${trial
+    ? '<p class="guide-note">これは体験版です。確認画像には「体験版・サンプル」と入ります。実際のお客様の情報は入力しないでください。</p>'
+    : '<p class="guide-note">入力はこの端末のブラウザの中に保存されます（ほかの端末とは同期しません）。消えることがあるため、「データ」→「バックアップを書き出す」で定期的に保存してください。</p>'}
+      <p class="hint"><a href="${esc(manualHref())}" target="_blank" rel="noopener">詳しい使い方（測る位置・保存のしかた・バックアップ）</a>　この案内は右上の「使い方」でいつでも開けます。</p>`,
     actions,
   }).then((v) => {
     markGuideSeen();

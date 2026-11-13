@@ -33,7 +33,8 @@ tests/e2e/run.mjs   ブラウザ操作テスト（Playwright + Chromium）
 ## 公開体験版と購入者用
 
 - `docs/` は**公開体験版**です（架空のサンプルで始まり、確認画像の上下に「体験版・サンプル」の帯が入ります）。
-- 購入者用は `node scripts/build.mjs` で `build/` に作ります。`docs/js/edition.js` の版の設定行だけを差し替え、ほかのコードは共通です。1ファイル版と配布 ZIP も作ります。
+- 購入者用ページは `docs/buyer/index.html`（公開 URL の `/buyer/`）です。`npm run build` が `docs/index.html` から生成します（版の印 `<meta name="katachi-edition" content="buyer">` を入れ、css/js は共通のものを参照）。直接編集しないでください。
+- 同じ `npm run build` で、配布 ZIP（1ファイル版を含む）を `build/` に作ります（git 管理外）。
 - 体験版と購入者用は、ブラウザ内の保存場所を分けています（同じドメインで開いても混ざりません）。
 - これは表示と保存場所を分ける仕組みで、購入者の認証やコピー防止ではありません。詳しくは `product/配布と公開の手順.md`。
 

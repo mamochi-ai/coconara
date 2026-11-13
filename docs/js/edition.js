@@ -1,5 +1,8 @@
 // 版の設定。公開体験版と購入者用は、この設定だけが異なる（ほかのコードは共通）。
-// 購入者用は scripts/build.mjs が、この内容を FULL_EDITION に置き換えて作る。
+// どちらの版になるかは、開いたページの HTML にある
+//   <meta name="katachi-edition" content="buyer">
+// で決まる（購入者用ページ docs/buyer/index.html と配布ZIPの index.html だけに入る）。
+// URL パラメーターや画面上の操作で切り替える仕組みはない。
 //
 // 注意：これは表示と保存場所を切り替えるための設定で、購入者の認証やコピー防止の仕組みではない。
 // 静的ファイルは誰でも取得・改変できる。
@@ -29,4 +32,14 @@ export const FULL_EDITION = {
   purchaseUrl: '',
 };
 
-export const EDITION = TRIAL_EDITION;
+/** ページに書かれた版（購入者用ページだけ 'buyer'） */
+function pageEdition() {
+  try {
+    const m = document.querySelector('meta[name="katachi-edition"]');
+    return m ? m.getAttribute('content') : null;
+  } catch {
+    return null;
+  }
+}
+
+export const EDITION = pageEdition() === 'buyer' ? FULL_EDITION : TRIAL_EDITION;

@@ -26,13 +26,16 @@ function assert(cond, msg) { if (!cond) throw new Error(msg); }
 
 // 購入者用を作ってから確認する（既存機能の確認は購入者用、体験版は /trial/ で確認）
 execFileSync(process.execPath, [fileURLToPath(new URL('../../scripts/build.mjs', import.meta.url))], { stdio: 'inherit' });
-const FULL_DIR = fileURLToPath(new URL('../../build/katachi-awase/web/', import.meta.url));
+// 公開と同じ配置：docs/ を '/'（体験版）、docs/buyer/ を '/buyer/'（購入者用）。配布ZIPの web/ は '/zip/'
+const ZIP_WEB_DIR = fileURLToPath(new URL('../../build/katachi-awase/web/', import.meta.url));
 const TRIAL_DIR = fileURLToPath(new URL('../../docs/', import.meta.url));
 const SINGLE_FILE = fileURLToPath(new URL('../../build/katachi-awase/single/katachi-awase.html', import.meta.url));
-const server = createServer({ '/': FULL_DIR, '/trial/': TRIAL_DIR });
+const server = createServer({ '/': TRIAL_DIR, '/zip/': ZIP_WEB_DIR });
 await new Promise((r) => server.listen(0, r));
-const URL_ = `http://localhost:${server.address().port}/`;
-const TRIAL_URL = `${URL_}trial/`;
+const ORIGIN = `http://localhost:${server.address().port}/`;
+const TRIAL_URL = ORIGIN;
+const URL_ = `${ORIGIN}buyer/`; // 既存の確認は購入者用で行う
+const ZIP_URL = `${ORIGIN}zip/`;
 await mkdir(OUT, { recursive: true });
 const browser = await chromium.launch();
 
@@ -187,6 +190,8 @@ await check('3. 未入力と0を混同しない', async () => {
   let pend = await visibleText(page, '.list-block.pending');
   assert(!pend.includes('マチ'), pend);
   await setField(page, '#f-gusset', '');
+  // 描画の直後に読むと取りこぼすことがあるため、表示されるまで待つ（最大3秒）
+  await page.waitForFunction(() => [...document.querySelectorAll('.list-block.pending')].some((e) => e.offsetParent && e.textContent.includes('マチ：未入力')), null, { timeout: 3000 }).catch(() => {});
   pend = await visibleText(page, '.list-block.pending');
   assert(pend.includes('マチ：未入力'), `${pend} / ${await page.evaluate(() => [document.getElementById('app').dataset.view, document.getElementById('app').hasAttribute('inert'), !!document.querySelector('.modal'), document.getElementById('diagramLists').textContent.slice(0, 80)].join(' | '))}`);
   assert((await page.textContent('#bottomReadout')).includes('入力すると計算'), '空欄なら底幅は未計算');
@@ -398,13 +403,13 @@ await check('V1-5. 仕様変更の件数と一覧・文章の変更・元に戻�
   assert(JSON.stringify(r) === JSON.stringify(['裏地：なし → あり〈ネイビー〉']), JSON.stringify(r));
   assert((await tabText()) === '比較仕様変更1件', await tabText());
   // 確認画像（お客様用）の見出しも同じ件数
-  const img = await p.evaluate(async () => {
-    const { buildReport } = await import('./js/report.js');
+  const img = await p.evaluate(async (src) => {
+    const { buildReport } = await import(src);
     const d = window.__katachi.state.doc;
     const r1 = buildReport(d, { audience: 'customer', side: false, interior: false, memo: false });
     const r2 = buildReport(d, { audience: 'maker' });
     return [r1.specCount, r1.changes.map((c) => c.text), r2.specCount];
-  });
+  }, `${ORIGIN}js/report.js`);
   assert(img[0] === 1 && img[2] === 1 && img[1][0] === '裏地：なし → あり〈ネイビー〉', JSON.stringify(img));
   await p.screenshot({ path: `${OUT}v-lining-count.png` });
   assert(p.errors.length === 0, p.errors.join(' / '));
@@ -741,8 +746,10 @@ await check('P2. 同じドメインでも体験版と購入者用のデータが
 await check('P3. 購入者用：使い方から新しい注文、消す前のバックアップ案内', async () => {
   const p = await newPage(PHONE, { keepGuide: true });
   const acts = await p.$$eval('.modal-actions button', (els) => els.map((e) => e.textContent.trim()));
-  assert(acts.includes('サンプルで試す') && acts.includes('新しい注文を始める'), JSON.stringify(acts));
-  await p.getByRole('button', { name: 'サンプルで試す' }).tap();
+  assert(acts.includes('架空のサンプルで試す') && acts.includes('新しい注文を始める'), JSON.stringify(acts));
+  const gt = await p.textContent('.modal');
+  assert(gt.includes('この端末のブラウザの中に保存') && gt.includes('バックアップを書き出す'), '保存とバックアップの案内');
+  await p.getByRole('button', { name: '架空のサンプルで試す', exact: true }).tap();
   await p.waitForSelector('#sampleBanner:not([hidden])');
   // サンプルを消して始める（サンプルなのでバックアップは求めない）
   await p.getByRole('button', { name: 'サンプルを消して新しい注文を始める' }).tap();
@@ -803,9 +810,58 @@ await check('P5. 1ファイル版を直接開いて動く（パソコン用ブ�
   await ctx.close();
 });
 
+await check('P7. 配布ZIPの web 版（index.html）も購入者用として動く', async () => {
+  const p = await newPage(IPAD_L, { url: ZIP_URL });
+  assert(await p.isHidden('#trialBanner'), '購入者用');
+  await p.tap('#btnSample');
+  await p.waitForSelector('#sampleBanner:not([hidden])');
+  await p.tap('#btnExport');
+  await p.waitForSelector('.preview-img');
+  assert(!isDark((await edgeColors(p)).top), '帯なし');
+  assert(p.errors.length === 0, p.errors.join(' / '));
+  await p.context().close();
+});
+
+await check('P8. 購入者用から使い方を開ける（/buyer/ → /manual.html）', async () => {
+  const p = await newPage(IPAD_P, { keepGuide: true });
+  const href = await p.$eval('.modal a[href*="manual"]', (a) => a.href);
+  assert(href === `${ORIGIN}manual.html`, href);
+  const [m] = await Promise.all([p.context().waitForEvent('page'), p.locator('.modal a[href*="manual"]').tap()]);
+  await m.waitForLoadState();
+  assert((await m.title()) === 'かたち合わせ 使い方', await m.title());
+  await p.context().close();
+});
+
+await check('P9. 再訪：保存済みの注文をサンプルで上書きしない（案内を初めて見る場合も）', async () => {
+  const ctx = await browser.newContext({ viewport: IPAD_P, hasTouch: true, isMobile: true });
+  const fixture = await readFile(fileURLToPath(new URL('../fixtures/backup-v1.json', import.meta.url)), 'utf8');
+  const raw = JSON.parse(fixture);
+  raw.data.current.orderNo = 'KEEP-ME';
+  raw.data.is_sample = false; // 実際の注文として保存されている状態
+  // 以前から購入者用の保存場所にデータがある状態（案内はまだ見ていない）
+  await ctx.addInitScript((t) => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem('katachi-awase:doc', t); sessionStorage.setItem('seeded', '1'); } }, JSON.stringify(raw));
+  const p = await ctx.newPage();
+  await p.goto(URL_);
+  assert((await p.textContent('.modal h2')) === '使い方', '案内は出る');
+  await p.locator('.modal [data-close]').tap();
+  if (!(await p.locator('#f-orderNo').isVisible())) await p.tap('#tab-input');
+  assert((await p.inputValue('#f-orderNo')) === 'KEEP-ME', '保存済みの注文が表示される');
+  assert(await p.isHidden('#sampleBanner'), 'サンプルにしない');
+  // 案内の「架空のサンプルで試す」は、上書き前に確認とバックアップを出す
+  await p.tap('#btnHelp');
+  await p.getByRole('button', { name: '架空のサンプルで試す', exact: true }).tap();
+  const t = await p.textContent('.modal');
+  assert(t.includes('先にバックアップを書き出す') && t.includes('元に戻せません'), t);
+  await p.locator('.modal-actions .btn:not(.btn-danger):not(.btn-primary)').first().tap();
+  await p.reload();
+  assert((await p.inputValue('#f-orderNo')) === 'KEEP-ME', '再読み込み後も残る');
+  assert(await p.locator('.modal').count() === 0, '2回目は案内なし');
+  await ctx.close();
+});
+
 await check('P6. 使い方ページ（iPad縦・スマートフォン幅で横スクロールなし）', async () => {
   for (const vp of [IPAD_P, PHONE]) {
-    const p = await newPage(vp, { url: `${URL_}manual.html`, keepGuide: true });
+    const p = await newPage(vp, { url: `${TRIAL_URL}manual.html`, keepGuide: true });
     const r = await p.evaluate(() => ({ sw: document.documentElement.scrollWidth, w: innerWidth, h2: [...document.querySelectorAll('h2')].map((h) => h.textContent) }));
     assert(r.sw <= r.w + 1, `横スクロール ${r.sw}>${r.w}`);
     for (const h of ['できること', '対応するバッグの形', '寸法を測る位置', '画像を保存する', 'バックアップと復元', '新しい注文を始める', '保存できないとき', 'データの保存場所について']) assert(r.h2.includes(h), h);
